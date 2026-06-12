@@ -135,13 +135,9 @@ def test_answer_is_deterministic_and_dict_coercible():
 
 def test_german_sessions_never_mix_languages():
     """Every ambient question kind has a German rendering — a `language:de` session
-    can't jump between languages mid-chat (and german_share defaults to 0: all
-    language assets are English unless explicitly enabled)."""
-    from synth.config import load_config
+    can't jump between languages mid-chat."""
     from synth.content import QUESTION_KINDS, build_question, germanize
     from synth.rng import Rng
-
-    assert load_config("config/demo.yaml").generation.german_share == 0.0
 
     rng = Rng(47)
     for kind in QUESTION_KINDS:

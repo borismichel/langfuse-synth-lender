@@ -182,3 +182,25 @@ def test_run_traces_carry_their_model_and_run_dates_backdated():
     for run in plan.cert.runs:
         for ri in run.items:
             assert ri.timestamp < RUN_DATE
+
+
+def test_language_is_consistent_per_user_and_session():
+    """German analysts (German names) have fully German sessions; no user or session
+    ever mixes languages. Golden/curated/flagged/batch stay English."""
+    cfg, plan = _plan(scale=0.25)
+    by_session: dict = {}
+    by_user: dict = {}
+    for s in plan.ambient_specs:
+        by_session.setdefault(s.session_id, set()).add(s.language)
+        by_user.setdefault(s.user_id, set()).add(s.language)
+    assert all(len(v) == 1 for v in by_session.values())   # one language per chat
+    assert all(len(v) == 1 for v in by_user.values())      # one language per analyst
+    de_users = {u for u, langs in by_user.items() if langs == {"de"}}
+    assert de_users, "expected German-speaking analysts at german_share=0.15"
+    de_surnames = ("krause", "weiss", "fischer", "vogel", "bauer", "wagner",
+                   "zimmer", "stein", "keller", "lang", "hoffmann", "schreiber")
+    assert all(any(n in u for n in de_surnames) for u in de_users)  # German NAMES
+    de_traces = sum(1 for s in plan.ambient_specs if s.language == "de")
+    assert 0.05 < de_traces / len(plan.ambient_specs) < 0.35
+    for s in plan.golden_specs + plan.curated_specs + plan.flagged_specs + plan.batch_specs:
+        assert s.language == "en"

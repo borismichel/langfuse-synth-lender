@@ -27,31 +27,53 @@ from .models import AnalystQuestion, CopilotAnswer
 from .rng import Rng
 
 # ---------------------------------------------------------------------------
-# Analyst population
+# Analyst population — language is a property of the ANALYST: German-named users
+# work in German, their sessions are fully German, every trace in them is tagged
+# `language:de`. No session or user ever mixes languages.
 # ---------------------------------------------------------------------------
-_SURNAMES = [
-    "krause", "weiss", "moreau", "lindqvist", "novak", "ferraro", "dubois", "hansen",
-    "kowalski", "berg", "fischer", "rossi", "jansen", "horvath", "keller", "andersen",
-    "marek", "leroy", "santos", "vogel", "bauer", "nilsson", "petrov", "drake",
-    "fontana", "meijer", "stein", "carvalho", "lang", "okafor", "byrne", "sato",
-    "wagner", "costa", "zimmer", "halonen", "bianchi", "kovacs", "duarte", "olsen",
+_SURNAMES_DE = [
+    "krause", "weiss", "fischer", "vogel", "bauer", "wagner", "zimmer", "stein",
+    "keller", "lang", "hoffmann", "schreiber",
+]
+_SURNAMES_INTL = [
+    "moreau", "lindqvist", "novak", "ferraro", "dubois", "hansen", "kowalski",
+    "berg", "rossi", "jansen", "horvath", "andersen", "marek", "leroy", "santos",
+    "nilsson", "petrov", "drake", "fontana", "meijer", "carvalho", "okafor",
+    "byrne", "sato", "costa", "halonen", "bianchi", "kovacs", "duarte", "olsen",
 ]
 
 
-def user_population(rng: Rng, n_users: int, power_share: float) -> list[dict]:
-    """Synthetic analysts; senior analysts (power users) get outsized weight (Zipf-ish)."""
+def user_population(rng: Rng, n_users: int, power_share: float,
+                    german_share: float = 0.0) -> list[dict]:
+    """Synthetic analysts; senior analysts (power users) get outsized weight (Zipf-ish).
+    ``german_share`` of analysts are German-speaking (German surnames, language 'de')."""
     rsub = rng.sub("users")
     n_power = max(1, int(n_users * power_share))
+    n_german = int(round(n_users * german_share))
+    # German analysts sit outside the Zipf-heavy senior block — otherwise one heavy
+    # user pushes the German trace share far past the configured band
+    pool = max(1, n_users - n_power)
+    german_idx = ({n_power + int(i * pool / n_german) for i in range(n_german)}
+                  if n_german else set())
     users = []
+    de_i = intl_i = 0
     for i in range(n_users):
         is_power = i < n_power
-        surname = _SURNAMES[i % len(_SURNAMES)]
-        suffix = "" if i < len(_SURNAMES) else str(i // len(_SURNAMES) + 1)
+        german = i in german_idx
+        if german:
+            surname = _SURNAMES_DE[de_i % len(_SURNAMES_DE)]
+            suffix = "" if de_i < len(_SURNAMES_DE) else str(de_i // len(_SURNAMES_DE) + 1)
+            de_i += 1
+        else:
+            surname = _SURNAMES_INTL[intl_i % len(_SURNAMES_INTL)]
+            suffix = "" if intl_i < len(_SURNAMES_INTL) else str(intl_i // len(_SURNAMES_INTL) + 1)
+            intl_i += 1
         users.append(
             {
                 "userId": f"analyst_{surname}{suffix}",
                 "weight": rsub.uniform(6, 12) if is_power else rsub.uniform(0.5, 1.5),
                 "is_power": is_power,
+                "language": "de" if german else "en",
             }
         )
     return users

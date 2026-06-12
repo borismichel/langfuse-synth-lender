@@ -43,7 +43,9 @@ trace/object to open) — filled with this run's real ids.
 
 - **~10–12k traces in ~1,150 sessions** over 30 days — sessions/day driven (~50
   weekdays, ~5 weekend), log-normal turns (median ~7, p95 ~22, tail to 30), Berlin
-  business hours with lunch dip and Friday-afternoon decline, 48 named analysts (Zipf-like), 1–3% tool errors **with retry spans**, a handful of
+  business hours with lunch dip and Friday-afternoon decline, 48 named analysts
+  (Zipf-like; ~12% of traces from German-named analysts whose sessions are FULLY
+  German — language never mixes within a user or chat), 1–3% tool errors **with retry spans**, a handful of
   failed generations, a nightly covenant-monitor batch line (ambience).
 - **Per-turn structure:** `copilot-turn` root → `filings_search` → `document_fetch` →
   `table_extract` (per filing on trend questions) → optional `covenant_db_lookup` /

@@ -51,7 +51,8 @@ class Plan:
 def build_plan(cfg: Config, run_date: datetime) -> Plan:
     rng = Rng(cfg.generation.seed)
     users = user_population(rng, cfg.generation.population.users,
-                            cfg.generation.population.power_user_share)
+                            cfg.generation.population.power_user_share,
+                            cfg.generation.german_share)
     cert = cert_mod.build(cfg, rng, run_date) if cfg.certification.enabled else Certification()
 
     golden = _build_golden(cfg, run_date, rng, users, cert)
@@ -95,7 +96,7 @@ def _build_ambient(cfg: Config, run_date: datetime, rng: Rng, users: list[dict])
         case = case_id(r, ("amb", g))
         sid = r.trace_id("session", g)
         env = "production" if r.chance(gen.environments.production_share) else "staging"
-        german = r.sub("lang", g).chance(gen.german_share)
+        german = user.get("language") == "de"   # language follows the ANALYST
         filing = filing_type(r, borrower, 2025)
         desk = desk_for(borrower)
         ts = start
@@ -105,12 +106,13 @@ def _build_ambient(cfg: Config, run_date: datetime, rng: Rng, users: list[dict])
             kind = ambient_kind(r, (g, turn))
             q = build_question(r, ("amb", g, turn), borrower, case, 2025, kind)
             ans = answer_deterministic(q)
-            language = "en"
             if german:
-                q2, a2 = germanize(kind, q, ans)
-                if a2 is not ans:
-                    q, ans, language = q2, a2, "de"
+                # full-coverage rendering: EVERY kind has a German form, so a German
+                # analyst's session never mixes languages mid-chat
+                q, ans = germanize(kind, q, ans)
+                language = "de"
             else:
+                language = "en"
                 ans = apply_archetype(r, (g, turn), kind, q, ans)
             err = None
             es = r.sub("err", g, turn)

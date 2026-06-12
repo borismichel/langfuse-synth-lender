@@ -188,13 +188,9 @@ def test_language_is_consistent_per_user_and_session():
     """All-English by default; with german_share enabled, German analysts (German
     names) have fully German sessions — no user or session ever mixes languages.
     Golden/curated/flagged/batch stay English."""
-    cfg0, plan0 = _plan(scale=0.1)
-    assert cfg0.generation.german_share == 0.0
-    assert all(s.language == "en" for s in plan0.specs)   # the resolved default
-
     cfg = load_config("config/demo.yaml")
+    assert cfg.generation.german_share > 0    # German on by default (plausible: per-analyst)
     cfg.generation.volume.scale = 0.25
-    cfg.generation.german_share = 0.2
     plan = build_plan(cfg, RUN_DATE)
     by_session: dict = {}
     by_user: dict = {}

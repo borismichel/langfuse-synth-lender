@@ -24,8 +24,9 @@ generation:
     power_user_share: 0.1              # Zipf-like: a few heavy users, long tail
   environments:
     production_share: 0.96             # rest tagged `staging`
-  german_share: 0.0                    # ALL ENGLISH (resolved 2026-06-12). >0 = share of German-
-                                       # speaking analysts; consistent per user AND session.
+  german_share: 0.2                    # share of German-speaking analysts (German names). Their
+                                       # sessions are FULLY German — never mixes within a user or
+                                       # chat (≈12% of traces). 0 = all English.
 
 models:                                # price per 1k tokens (Anthropic API, May 2026)
   - { name: claude-sonnet-4-5, role: work,  input_per_1k: 0.003, output_per_1k: 0.015 }   # incumbent (production)

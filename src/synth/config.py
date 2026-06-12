@@ -53,8 +53,8 @@ class Generation(BaseModel):
     volume: Volume = Field(default_factory=Volume)
     population: Population = Field(default_factory=Population)
     environments: Environments = Field(default_factory=Environments)
-    german_share: float = 0.0   # all English (resolved); >0 = share of German-speaking analysts,
-                                 # consistent per user AND per session (never mixes mid-chat)
+    german_share: float = 0.2   # share of German-speaking analysts; consistent per user
+                                 # AND per session (never mixes mid-chat). 0 = all English.
 
 
 class Model(BaseModel):

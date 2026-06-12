@@ -1,0 +1,791 @@
+[
+  {
+    "kind": "golden_trace",
+    "key": "covenant_summary",
+    "title": "Covenant risk summary (multi-filing, well-cited)",
+    "trace_id": "5478fc8dbd3fb9c9528ebb8ffac66215",
+    "question": {
+      "case_id": "CR-2026-14732",
+      "borrower": "Adler Maschinenbau AG",
+      "question": "Summarize covenant-related risk across the last three filings of Adler Maschinenbau AG.",
+      "excerpts": [
+        {
+          "section_id": "fin-2023.kpi.05",
+          "title": "Key financial metrics (extract) \u2014 FY2023",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Revenue",
+              "404,122"
+            ],
+            [
+              "EBITDA",
+              "72,011"
+            ],
+            [
+              "Scheduled debt service",
+              "66,982"
+            ],
+            [
+              "Total borrowings",
+              "316,164"
+            ],
+            [
+              "Cash and cash equivalents",
+              "73,435"
+            ]
+          ]
+        },
+        {
+          "section_id": "fin-2024.kpi.05",
+          "title": "Key financial metrics (extract) \u2014 FY2024",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Revenue",
+              "92,806"
+            ],
+            [
+              "EBITDA",
+              "10,710"
+            ],
+            [
+              "Scheduled debt service",
+              "14,309"
+            ],
+            [
+              "Total borrowings",
+              "28,861"
+            ],
+            [
+              "Cash and cash equivalents",
+              "3,721"
+            ]
+          ]
+        },
+        {
+          "section_id": "fin-2025.kpi.05",
+          "title": "Key financial metrics (extract) \u2014 FY2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Revenue",
+              "46,268"
+            ],
+            [
+              "EBITDA",
+              "7,250"
+            ],
+            [
+              "Scheduled debt service",
+              "4,636"
+            ],
+            [
+              "Total borrowings",
+              "27,977"
+            ],
+            [
+              "Cash and cash equivalents",
+              "2,390"
+            ]
+          ]
+        },
+        {
+          "section_id": "fin-2025.notes.74",
+          "title": "Notes \u2014 borrowings and debt service (extract), FY2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Total borrowings",
+              "27,977"
+            ],
+            [
+              "Scheduled debt service",
+              "4,636"
+            ],
+            [
+              "Capital expenditure",
+              "1,888"
+            ]
+          ]
+        }
+      ]
+    },
+    "answer": {
+      "answer_type": "factual",
+      "answer": "Key credit picture for Adler Maschinenbau AG (FY2023): revenue of EUR 404,122,000. Figures are as filed in the cited extracts.",
+      "figures": {},
+      "ratios": {},
+      "citations": [
+        "fin-2023.kpi.05",
+        "fin-2024.kpi.05",
+        "fin-2025.kpi.05",
+        "fin-2025.notes.74"
+      ],
+      "basis": "summary restricted to the cited extracts"
+    },
+    "expected": {
+      "answer_type": "factual",
+      "answer": "Key credit picture for Adler Maschinenbau AG (FY2023): revenue of EUR 404,122,000. Figures are as filed in the cited extracts.",
+      "figures": {},
+      "ratios": {},
+      "citations": [
+        "fin-2023.kpi.05",
+        "fin-2024.kpi.05",
+        "fin-2025.kpi.05",
+        "fin-2025.notes.74"
+      ],
+      "basis": "summary restricted to the cited extracts"
+    },
+    "error_mode": null,
+    "analyst_comment": ""
+  },
+  {
+    "kind": "golden_trace",
+    "key": "numeric_hallucination",
+    "title": "Numeric hallucination caught by the checks",
+    "trace_id": "36fb4aae66035fd94d2326231e4ab9f5",
+    "question": {
+      "case_id": "CR-2026-04821",
+      "borrower": "Vektra Components AG",
+      "question": "What was Net result for the year for FY2025, in EUR?",
+      "excerpts": [
+        {
+          "section_id": "fin-2025.is.12",
+          "title": "Income statement (extract) \u2014 year ended 31 December 2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Revenue",
+              "371,063"
+            ],
+            [
+              "Operating profit",
+              "37,131"
+            ],
+            [
+              "EBITDA",
+              "54,673"
+            ],
+            [
+              "Net finance costs",
+              "(13,993)"
+            ],
+            [
+              "Net result for the year",
+              "(2,431)"
+            ]
+          ]
+        }
+      ]
+    },
+    "answer": {
+      "answer_type": "factual",
+      "answer": "Vektra Components AG's net result for the year per the cited extract was EUR 2,431,000 (a profit).",
+      "figures": {
+        "net_result_eur": 2431000
+      },
+      "ratios": {},
+      "citations": [
+        "fin-2025.is.12"
+      ],
+      "basis": "printed as (2,431) (in EUR thousands) \u2192 EUR 2,431,000"
+    },
+    "expected": {
+      "answer_type": "factual",
+      "answer": "Vektra Components AG's net result for the year per the cited extract was EUR -2,431,000 (a loss).",
+      "figures": {
+        "net_result_eur": -2431000
+      },
+      "ratios": {},
+      "citations": [
+        "fin-2025.is.12"
+      ],
+      "basis": "printed as (2,431) (in EUR thousands) \u2192 EUR -2,431,000"
+    },
+    "error_mode": "sign",
+    "analyst_comment": "Filing prints (2,431) \u2014 that is a LOSS of EUR 2.431m. The copilot reported it as a profit. Parenthesised negatives again \u2014 flagging for review."
+  },
+  {
+    "kind": "golden_trace",
+    "key": "correct_escalation",
+    "title": "Out-of-scope request escalated to a human",
+    "trace_id": "a58359f05e663fea888814246a2617ce",
+    "question": {
+      "case_id": "CR-2026-31926",
+      "borrower": "TerraBau Infrastruktur GmbH",
+      "question": "The Total borrowings in this filing conflicts with the exposure on our internal facility schedule \u2014 how should I proceed?",
+      "excerpts": [
+        {
+          "section_id": "fin-2025.bs.31",
+          "title": "Statement of financial position (extract) \u2014 at 31 December 2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Total assets",
+              "144,381"
+            ],
+            [
+              "Total borrowings",
+              "20,726"
+            ],
+            [
+              "Cash and cash equivalents",
+              "5,445"
+            ],
+            [
+              "Equity attributable to owners",
+              "43,018"
+            ],
+            [
+              "Inventories",
+              "11,250"
+            ],
+            [
+              "Trade receivables",
+              "7,742"
+            ]
+          ]
+        }
+      ]
+    },
+    "answer": {
+      "answer_type": "escalated",
+      "answer": "This needs human review: the analyst reports case evidence that conflicts with the filed extracts, and adjudicating between sources is credit judgment, not figure verification. Escalating to the senior credit officer with both sources attached.",
+      "figures": {},
+      "ratios": {},
+      "citations": [
+        "fin-2025.bs.31"
+      ],
+      "basis": "material conflict between sources \u2014 beyond verification scope"
+    },
+    "expected": {
+      "answer_type": "escalated",
+      "answer": "This needs human review: the analyst reports case evidence that conflicts with the filed extracts, and adjudicating between sources is credit judgment, not figure verification. Escalating to the senior credit officer with both sources attached.",
+      "figures": {},
+      "ratios": {},
+      "citations": [
+        "fin-2025.bs.31"
+      ],
+      "basis": "material conflict between sources \u2014 beyond verification scope"
+    },
+    "error_mode": null,
+    "analyst_comment": ""
+  },
+  {
+    "kind": "golden_trace",
+    "key": "dscr_trend",
+    "title": "DSCR trend across quarters (multi-extraction)",
+    "trace_id": "e1c3206a4f14eeb5cf3c50703db615e6",
+    "question": {
+      "case_id": "CR-2026-35009",
+      "borrower": "Vasa Paper Mills AB",
+      "question": "How did the debt-service coverage ratio develop over the last three fiscal years?",
+      "excerpts": [
+        {
+          "section_id": "fin-2023.kpi.05",
+          "title": "Key financial metrics (extract) \u2014 FY2023",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Revenue",
+              "248,993"
+            ],
+            [
+              "EBITDA",
+              "46,123"
+            ],
+            [
+              "Scheduled debt service",
+              "21,814"
+            ],
+            [
+              "Total borrowings",
+              "116,933"
+            ],
+            [
+              "Cash and cash equivalents",
+              "13,264"
+            ]
+          ]
+        },
+        {
+          "section_id": "fin-2024.kpi.05",
+          "title": "Key financial metrics (extract) \u2014 FY2024",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Revenue",
+              "127,163"
+            ],
+            [
+              "EBITDA",
+              "22,762"
+            ],
+            [
+              "Scheduled debt service",
+              "18,729"
+            ],
+            [
+              "Total borrowings",
+              "62,060"
+            ],
+            [
+              "Cash and cash equivalents",
+              "17,449"
+            ]
+          ]
+        },
+        {
+          "section_id": "fin-2025.kpi.05",
+          "title": "Key financial metrics (extract) \u2014 FY2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Revenue",
+              "167,938"
+            ],
+            [
+              "EBITDA",
+              "19,451"
+            ],
+            [
+              "Scheduled debt service",
+              "9,258"
+            ],
+            [
+              "Total borrowings",
+              "65,627"
+            ],
+            [
+              "Cash and cash equivalents",
+              "20,755"
+            ]
+          ]
+        }
+      ]
+    },
+    "answer": {
+      "answer_type": "factual",
+      "answer": "Vasa Paper Mills AB's debt-service coverage trend is deteriorating: FY2023: 2.11x, FY2024: 1.22x, FY2025: 2.10x. Each figure is computed from the cited key-metrics extract for that year.",
+      "figures": {
+        "ebitda_eur_fy2023": 46123000,
+        "debt_service_eur_fy2023": 21814000,
+        "ebitda_eur_fy2024": 22762000,
+        "debt_service_eur_fy2024": 18729000,
+        "ebitda_eur_fy2025": 19451000,
+        "debt_service_eur_fy2025": 9258000
+      },
+      "ratios": {
+        "dscr_fy2023": 2.11,
+        "dscr_fy2024": 1.22,
+        "dscr_fy2025": 2.1
+      },
+      "citations": [
+        "fin-2023.kpi.05",
+        "fin-2024.kpi.05",
+        "fin-2025.kpi.05"
+      ],
+      "basis": "DSCR per fiscal year = EBITDA / scheduled debt service, per cited extract"
+    },
+    "expected": {
+      "answer_type": "factual",
+      "answer": "Vasa Paper Mills AB's debt-service coverage trend is deteriorating: FY2023: 2.11x, FY2024: 1.22x, FY2025: 2.10x. Each figure is computed from the cited key-metrics extract for that year.",
+      "figures": {
+        "ebitda_eur_fy2023": 46123000,
+        "debt_service_eur_fy2023": 21814000,
+        "ebitda_eur_fy2024": 22762000,
+        "debt_service_eur_fy2024": 18729000,
+        "ebitda_eur_fy2025": 19451000,
+        "debt_service_eur_fy2025": 9258000
+      },
+      "ratios": {
+        "dscr_fy2023": 2.11,
+        "dscr_fy2024": 1.22,
+        "dscr_fy2025": 2.1
+      },
+      "citations": [
+        "fin-2023.kpi.05",
+        "fin-2024.kpi.05",
+        "fin-2025.kpi.05"
+      ],
+      "basis": "DSCR per fiscal year = EBITDA / scheduled debt service, per cited extract"
+    },
+    "error_mode": null,
+    "analyst_comment": ""
+  },
+  {
+    "kind": "golden_trace",
+    "key": "citation_gap",
+    "title": "Citation gap caught by citation coverage",
+    "trace_id": "ff8797cc27cc11faeeedbc34293a0503",
+    "question": {
+      "case_id": "CR-2026-44287",
+      "borrower": "Borealis Marine Services",
+      "question": "Summarise the key credit risk factors visible in these extracts.",
+      "excerpts": [
+        {
+          "section_id": "fin-2025.is.12",
+          "title": "Income statement (extract) \u2014 year ended 31 December 2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Revenue",
+              "414,506"
+            ],
+            [
+              "Operating profit",
+              "34,454"
+            ],
+            [
+              "EBITDA",
+              "54,473"
+            ],
+            [
+              "Net finance costs",
+              "(13,602)"
+            ],
+            [
+              "Net result for the year",
+              "20,899"
+            ]
+          ]
+        },
+        {
+          "section_id": "fin-2025.bs.31",
+          "title": "Statement of financial position (extract) \u2014 at 31 December 2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Total assets",
+              "581,657"
+            ],
+            [
+              "Total borrowings",
+              "117,966"
+            ],
+            [
+              "Cash and cash equivalents",
+              "27,993"
+            ],
+            [
+              "Equity attributable to owners",
+              "257,799"
+            ],
+            [
+              "Inventories",
+              "62,007"
+            ],
+            [
+              "Trade receivables",
+              "41,017"
+            ]
+          ]
+        }
+      ]
+    },
+    "answer": {
+      "answer_type": "factual",
+      "answer": "Key credit picture for Borealis Marine Services (FY2025): revenue of EUR 414,506,000; a net profit of EUR 20,899,000. Figures are as filed in the cited extracts.",
+      "figures": {},
+      "ratios": {},
+      "citations": [],
+      "basis": "summary (sources not attached)"
+    },
+    "expected": {
+      "answer_type": "factual",
+      "answer": "Key credit picture for Borealis Marine Services (FY2025): revenue of EUR 414,506,000; a net profit of EUR 20,899,000. Figures are as filed in the cited extracts.",
+      "figures": {},
+      "ratios": {},
+      "citations": [
+        "fin-2025.is.12",
+        "fin-2025.bs.31"
+      ],
+      "basis": "summary restricted to the cited extracts"
+    },
+    "error_mode": "miscite",
+    "analyst_comment": ""
+  },
+  {
+    "kind": "run_red_cell",
+    "scenario": "numeric_lookup",
+    "item_id": "4923627c30847f46f1aaaa3c",
+    "run_errors": {
+      "candidate_b": "sign"
+    },
+    "question": {
+      "case_id": "CR-2026-28646",
+      "borrower": "Ybbs Hydraulik GmbH",
+      "question": "What was Net result for the year for FY2025, in EUR?",
+      "excerpts": [
+        {
+          "section_id": "fin-2025.is.12",
+          "title": "Income statement (extract) \u2014 year ended 31 December 2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Revenue",
+              "77,713"
+            ],
+            [
+              "Operating profit",
+              "4,110"
+            ],
+            [
+              "EBITDA",
+              "6,588"
+            ],
+            [
+              "Net finance costs",
+              "(1,628)"
+            ],
+            [
+              "Net result for the year",
+              "(2,971)"
+            ]
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "answer_type": "factual",
+      "answer": "Ybbs Hydraulik GmbH's net result for the year per the cited extract was EUR -2,971,000 (a loss).",
+      "figures": {
+        "net_result_eur": -2971000
+      },
+      "ratios": {},
+      "citations": [
+        "fin-2025.is.12"
+      ],
+      "basis": "printed as (2,971) (in EUR thousands) \u2192 EUR -2,971,000"
+    }
+  },
+  {
+    "kind": "run_red_cell",
+    "scenario": "numeric_lookup",
+    "item_id": "4228d238f1b1d6ca8b2e1807",
+    "run_errors": {
+      "candidate_b": "sign"
+    },
+    "question": {
+      "case_id": "CR-2026-30415",
+      "borrower": "Tatra Foodstuffs s.r.o.",
+      "question": "What was Net result for the year for FY2025, in EUR?",
+      "excerpts": [
+        {
+          "section_id": "fin-2025.is.12",
+          "title": "Income statement (extract) \u2014 year ended 31 December 2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Revenue",
+              "404,369"
+            ],
+            [
+              "Operating profit",
+              "20,806"
+            ],
+            [
+              "EBITDA",
+              "37,409"
+            ],
+            [
+              "Net finance costs",
+              "(7,693)"
+            ],
+            [
+              "Net result for the year",
+              "(13,330)"
+            ]
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "answer_type": "factual",
+      "answer": "Tatra Foodstuffs s.r.o.'s net result for the year per the cited extract was EUR -13,330,000 (a loss).",
+      "figures": {
+        "net_result_eur": -13330000
+      },
+      "ratios": {},
+      "citations": [
+        "fin-2025.is.12"
+      ],
+      "basis": "printed as (13,330) (in EUR thousands) \u2192 EUR -13,330,000"
+    }
+  },
+  {
+    "kind": "run_red_cell",
+    "scenario": "numeric_lookup",
+    "item_id": "79939ddb62dbb4a18149a93b",
+    "run_errors": {
+      "candidate_b": "units"
+    },
+    "question": {
+      "case_id": "CR-2026-54354",
+      "borrower": "Istria Agrar Group",
+      "question": "What was Total assets for FY2025, in EUR?",
+      "excerpts": [
+        {
+          "section_id": "fin-2025.bs.31",
+          "title": "Statement of financial position (extract) \u2014 at 31 December 2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Total assets",
+              "408,650"
+            ],
+            [
+              "Total borrowings",
+              "224,159"
+            ],
+            [
+              "Cash and cash equivalents",
+              "62,259"
+            ],
+            [
+              "Equity attributable to owners",
+              "166,525"
+            ],
+            [
+              "Inventories",
+              "40,993"
+            ],
+            [
+              "Trade receivables",
+              "43,413"
+            ]
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "answer_type": "factual",
+      "answer": "Istria Agrar Group's total assets per the cited extract was EUR 408,650,000.",
+      "figures": {
+        "total_assets_eur": 408650000
+      },
+      "ratios": {},
+      "citations": [
+        "fin-2025.bs.31"
+      ],
+      "basis": "printed as 408,650 (in EUR thousands) \u2192 EUR 408,650,000"
+    }
+  },
+  {
+    "kind": "run_red_cell",
+    "scenario": "numeric_lookup",
+    "item_id": "7d429455e527618f568501e7",
+    "run_errors": {
+      "baseline": "units"
+    },
+    "question": {
+      "case_id": "CR-2026-23633",
+      "borrower": "Kappa Automotive Parts",
+      "question": "What was Cash and cash equivalents for FY2025, in EUR?",
+      "excerpts": [
+        {
+          "section_id": "fin-2025.bs.31",
+          "title": "Statement of financial position (extract) \u2014 at 31 December 2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Total assets",
+              "200,524"
+            ],
+            [
+              "Total borrowings",
+              "119,713"
+            ],
+            [
+              "Cash and cash equivalents",
+              "25,531"
+            ],
+            [
+              "Equity attributable to owners",
+              "89,450"
+            ],
+            [
+              "Inventories",
+              "26,356"
+            ],
+            [
+              "Trade receivables",
+              "29,263"
+            ]
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "answer_type": "factual",
+      "answer": "Kappa Automotive Parts's cash and cash equivalents per the cited extract was EUR 25,531,000.",
+      "figures": {
+        "cash_eur": 25531000
+      },
+      "ratios": {},
+      "citations": [
+        "fin-2025.bs.31"
+      ],
+      "basis": "printed as 25,531 (in EUR thousands) \u2192 EUR 25,531,000"
+    }
+  },
+  {
+    "kind": "run_red_cell",
+    "scenario": "numeric_lookup",
+    "item_id": "50dbbbf21259830fa4356cfa",
+    "run_errors": {
+      "candidate_b": "units"
+    },
+    "question": {
+      "case_id": "CR-2026-44685",
+      "borrower": "Drava Chemicals d.o.o.",
+      "question": "What was Equity attributable to owners for FY2025, in EUR?",
+      "excerpts": [
+        {
+          "section_id": "fin-2025.bs.31",
+          "title": "Statement of financial position (extract) \u2014 at 31 December 2025",
+          "unit_note": "in EUR thousands",
+          "lines": [
+            [
+              "Total assets",
+              "237,041"
+            ],
+            [
+              "Total borrowings",
+              "54,279"
+            ],
+            [
+              "Cash and cash equivalents",
+              "15,461"
+            ],
+            [
+              "Equity attributable to owners",
+              "80,337"
+            ],
+            [
+              "Inventories",
+              "36,203"
+            ],
+            [
+              "Trade receivables",
+              "17,886"
+            ]
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "answer_type": "factual",
+      "answer": "Drava Chemicals d.o.o.'s equity attributable to owners per the cited extract was EUR 80,337,000.",
+      "figures": {
+        "equity_eur": 80337000
+      },
+      "ratios": {},
+      "citations": [
+        "fin-2025.bs.31"
+      ],
+      "basis": "printed as 80,337 (in EUR thousands) \u2192 EUR 80,337,000"
+    }
+  }
+]

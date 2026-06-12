@@ -1,0 +1,33 @@
+# DEMO_MAP.md — checklist row → UI path → object (spec v2 §9.6)
+
+> Generated from run state; ids are this run's real data. "UI path" is relative to
+> the project; deep links resolve when the project id is known.
+
+| # | Checklist row | UI path | Open this | Anchor |
+|---|---|---|---|---|
+| 1a | Full capture | Traces | any `copilot-turn`; note tool spans + prompt-version link | {{ ui('traces') }} |
+| 1b | Sessions | Sessions | a long multi-turn chat (sort by trace count) | {{ ui('sessions') }} |
+| 2a | Ground truth from traffic | Datasets → {{ suite_info.name }} | items with `sourceTraceId`; metadata.scenario | {{ ui('datasets') }} |
+| 2b | Human review (alive) | Annotation queues → {{ queue.name }} | the PENDING item `{{ flagged.trace_id }}` ({{ flagged.borrower }}) | {{ ui('annotation-queues') }} |
+| 3a | Automated eval — caught | Traces → tag `golden` | `{{ golden_map.numeric_hallucination.trace_id }}` — numeric_accuracy fail + groundedness 0.41 + reviewer corrected | {{ ui('traces/' + golden_map.numeric_hallucination.trace_id) }} |
+| 3b | Automated eval — contrast | Traces → tag `golden` | `{{ golden_map.citation_gap.trace_id }}` — citation_coverage 0.32, content fine | {{ ui('traces/' + golden_map.citation_gap.trace_id) }} |
+| 4 | Comparative certification | Datasets → {{ suite_info.name }} → Runs | `{{ baseline.name }}` vs `{{ cand_a.name }}` vs `{{ cand_b.name }}` (B fails numeric_lookup {{ '%.1f%%'|format((cand_b.pass_rates or {}).get('numeric_lookup', 0)*100) }} < {{ '%.0f%%'|format(gates.get('numeric_lookup', 0.95)*100) }}) | {{ ui('datasets') }} |
+| 5 | One evidence trail | Scores | filter by name: numeric_accuracy · groundedness · citation_coverage · analyst_feedback · reviewer_verdict | {{ ui('scores') }} |
+
+## Golden traces (tag `golden`, <10s findable)
+
+| Key | Trace | What it shows |
+|---|---|---|
+{% for g in golden -%}
+| {{ g.key }} | `{{ g.trace_id }}` | {{ g.title }} |
+{% endfor %}
+
+## Other anchors
+
+| Object | Where | Note |
+|---|---|---|
+| Prompt history | Prompts → {{ prompt_name }} | {{ prompt_versions.latest }} versions; production=v{{ prompt_versions.production }}, staging=v{{ prompt_versions.staging }}; mid-window transition era-linked on generations |
+| Quality-dip ambience | Dashboards / scores over time | groundedness dips in the v{{ prompt_versions.production - 1 }} era, recovers at v{{ prompt_versions.production }} |
+| Nightly batch line | Traces → tag `batch:covenant-monitor` | ambience only — never demoed |
+| German share | Traces → tag `language:de` | EMEA flavour (~12%) |
+| Workbench | `synth playground` → /workbench | branded governance layer: designer, runs, coverage, promote, evidence |

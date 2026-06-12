@@ -1,0 +1,84 @@
+# `cloud-demo` preset — same shape as config/demo.yaml, scaled for Langfuse Cloud
+# free-tier ingestion caps with ≥20% headroom (spec v2 §3).
+#
+# Before seeding against Cloud:
+#   1. check the CURRENT free-tier event caps (https://langfuse.com/pricing) — they
+#      change; do not trust this file's scale blindly. `synth plan -c config/cloud-demo.yaml`
+#      prints the exact event count this preset will ingest; adjust `scale` so that
+#      events ≤ 0.8 × your cap.
+#   2. run `synth probe -c config/cloud-demo.yaml` — ingests ONE backdated trace and
+#      verifies the historical timestamp survives on this host. Fails loudly before
+#      any bulk generation if backdating is dropped or normalised.
+#
+# 14-day window + scale 0.5 ≈ 250–300 sessions ≈ ~2.3k traces ≈ ~12k events.
+# All golden traces, the certification suite, the three experiment runs, and the
+# annotation queue are preserved at every scale (they are not subject to `scale`).
+
+target:
+  host: https://cloud.langfuse.com     # overridable via LANGFUSE_BASE_URL
+  project_hint: demo
+
+generation:
+  seed: 47
+  archetype: filing_copilot
+  window_days: 14
+  tz_offset_hours: 2
+  volume:
+    scale: 0.5
+    sessions_per_weekday: [45, 55]
+    sessions_per_weekend_day: [3, 7]
+    turns_median: 7
+    turns_sigma: 0.7
+    turns_max: 30
+  population:
+    users: 48
+    power_user_share: 0.1
+  environments:
+    production_share: 0.96
+  german_share: 0.18
+
+models:
+  - { name: claude-sonnet-4-5, role: work,  input_per_1k: 0.003, output_per_1k: 0.015 }
+  - { name: claude-sonnet-4-6, role: work2, input_per_1k: 0.003, output_per_1k: 0.015 }
+  - { name: claude-haiku-4-5,  role: light, input_per_1k: 0.001, output_per_1k: 0.005 }
+
+certification:
+  enabled: true
+  prompt_name: analyst-copilot
+  n_prompt_versions: 8
+  prompt_transition_day_offset: -7     # mid-window for the 14-day frame
+  prompt_fix_day_offset: -4
+  incumbent_model: claude-sonnet-4-5
+  candidate_a_model: claude-sonnet-4-6
+  candidate_b_model: claude-haiku-4-5
+  judge_model: claude-sonnet-4-6
+  baseline_run_day_offset: -3
+  candidate_run_day_offset: -1
+  n_flagged_reserved: 1
+  dataset:
+    name: certification-suite
+    scenarios:
+      summary:        { n_items: 14, gate: 0.90 }
+      numeric_lookup: { n_items: 22, gate: 0.95 }
+      trend:          { n_items: 10, gate: 0.90 }
+      covenant:       { n_items: 14, gate: 0.95 }
+      out_of_scope:   { n_items: 12, gate: 1.00 }
+  queue:
+    name: certification-review
+    n_completed: 16
+    n_pending: 14
+
+ambience:
+  quality_dip: { enabled: true, dip: 0.06 }
+  error_rate: 0.02
+  nightly_batch: { enabled: true, traces_per_night: 2, tag: batch:covenant-monitor }
+
+scoring:
+  citation_format_coverage: 1.0
+  numeric_check_ratio: 0.35
+  groundedness_judge_ratio: 0.12
+  citation_judge_ratio: 0.12
+  escalation_check_coverage: 1.0
+  feedback_response_ratio: 0.11
+  feedback_down_rate: 0.05
+  judge_human_agreement: 0.88

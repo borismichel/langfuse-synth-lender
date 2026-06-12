@@ -43,8 +43,9 @@ from the printed table.
 ## 4 · Evidence trail
 All five score-method types are present as score objects on one surface: deterministic
 assertions (`numeric_accuracy`, `citation_format`, `escalation_correctness`), managed
-judges (`groundedness`, `citation_coverage`), human annotation (`reviewer_verdict`),
-and user feedback (`analyst_feedback`) — across production traces and experiment runs.
+judges (`groundedness`, `citation_coverage`), **human annotation on the same criteria
+scales** (the review queue binds the certification configs — reviewers create ground
+truth, they don't pass/fail results), and user feedback (`analyst_feedback`).
 Judge–human agreement on co-annotated traces is ~88% with documented disagreements.
 {% if workbench_runs %}
 ### Validation Workbench record

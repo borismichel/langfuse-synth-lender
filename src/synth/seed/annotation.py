@@ -1,7 +1,7 @@
 """The ``certification-review`` annotation queue (spec v2 §5) — one queue, alive.
 
-A mix of COMPLETED items (human ``reviewer_verdict`` scores present, judge scores
-alongside for the agreement story) and ~10–20 PENDING items (recent production traces
+A mix of COMPLETED items (human criteria scores present — the reviewer scores the
+same configs certification uses — with judge scores alongside for the agreement story) and ~10–20 PENDING items (recent production traces
 awaiting review — including the reserved flagged thumbs-down the live demo promotes
 into the suite). The queue must look like a working process, not a finished one.
 """
@@ -74,9 +74,10 @@ def seed_queue(cfg: Config, completed_trace_ids: list[str], pending_trace_ids: l
     ids = score_config_ids(base_url, REVIEW_QUEUE_CONFIGS)
     queue_id = ensure_queue(
         base_url, qcfg.name,
-        "Human ground-truth review feeding the certification suite: confirm or correct "
-        "the copilot's answer; confirmed items become dataset ground truth. Completing "
-        "an item records the reviewer verdict on the trace.", ids)
+        "Ground-truth annotation feeding the certification suite: the reviewer scores "
+        "the SAME criteria certification uses (groundedness, citation coverage, the "
+        "deterministic scales) — those human scores are the ground truth the suite "
+        "inherits.", ids)
     for tid in completed_trace_ids:
         add_queue_item(base_url, queue_id, tid, "COMPLETED")
     for tid in pending_trace_ids:

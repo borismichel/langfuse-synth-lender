@@ -78,7 +78,8 @@ def _hydrate(cfg: Config, trace_id: str, status: str) -> Candidate:
         cand.borrower = (trace.get("metadata") or {}).get("borrower", "")
         cand.case_id = (trace.get("metadata") or {}).get("case_id", "")
         for s in trace.get("scores") or []:
-            if s.get("name") in ("analyst_feedback", "reviewer_verdict") and s.get("comment"):
+            if s.get("comment") and (s.get("name") == "analyst_feedback"
+                                     or "human annotation" in s.get("comment", "")):
                 cand.reviewer_comments.append(s["comment"])
         # the deterministic conventions produce the corrected ground truth for our
         # templated questions — prefill, reviewer confirms/edits

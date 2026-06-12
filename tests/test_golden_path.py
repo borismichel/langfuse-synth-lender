@@ -185,9 +185,17 @@ def test_run_traces_carry_their_model_and_run_dates_backdated():
 
 
 def test_language_is_consistent_per_user_and_session():
-    """German analysts (German names) have fully German sessions; no user or session
-    ever mixes languages. Golden/curated/flagged/batch stay English."""
-    cfg, plan = _plan(scale=0.25)
+    """All-English by default; with german_share enabled, German analysts (German
+    names) have fully German sessions — no user or session ever mixes languages.
+    Golden/curated/flagged/batch stay English."""
+    cfg0, plan0 = _plan(scale=0.1)
+    assert cfg0.generation.german_share == 0.0
+    assert all(s.language == "en" for s in plan0.specs)   # the resolved default
+
+    cfg = load_config("config/demo.yaml")
+    cfg.generation.volume.scale = 0.25
+    cfg.generation.german_share = 0.2
+    plan = build_plan(cfg, RUN_DATE)
     by_session: dict = {}
     by_user: dict = {}
     for s in plan.ambient_specs:
@@ -201,6 +209,6 @@ def test_language_is_consistent_per_user_and_session():
                    "zimmer", "stein", "keller", "lang", "hoffmann", "schreiber")
     assert all(any(n in u for n in de_surnames) for u in de_users)  # German NAMES
     de_traces = sum(1 for s in plan.ambient_specs if s.language == "de")
-    assert 0.05 < de_traces / len(plan.ambient_specs) < 0.35
+    assert 0.05 < de_traces / len(plan.ambient_specs) < 0.35   # in-band when enabled
     for s in plan.golden_specs + plan.curated_specs + plan.flagged_specs + plan.batch_specs:
         assert s.language == "en"

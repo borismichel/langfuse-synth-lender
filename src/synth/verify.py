@@ -195,10 +195,14 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
     try:
         present = {}
         for name in ("numeric_accuracy", "groundedness", "citation_coverage",
-                     "analyst_feedback", "reviewer_verdict"):
+                     "analyst_feedback"):
             present[name] = len(_get_scores(base, name, limit_pages=1))
+        gnd = _get_scores(base, "groundedness", limit_pages=3)
+        human = sum(1 for s in gnd
+                    if "human annotation" in (s.get("comment") or ""))
+        present["human_annotation(groundedness)"] = human
         ok = all(v > 0 for v in present.values())
-        report.add("score_methods", ok, f"score counts (page 1): {present}")
+        report.add("score_methods", ok, f"score counts: {present}")
     except Exception as exc:  # noqa: BLE001
         report.add("score_methods", False, f"error: {exc}")
 

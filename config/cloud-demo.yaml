@@ -35,7 +35,7 @@ generation:
     power_user_share: 0.1
   environments:
     production_share: 0.96
-  german_share: 0.2
+  german_share: 0.0
 
 models:
   - { name: claude-sonnet-4-5, role: work,  input_per_1k: 0.003, output_per_1k: 0.015 }

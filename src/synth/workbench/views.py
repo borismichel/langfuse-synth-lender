@@ -524,7 +524,7 @@ def build_router(cfg: Config):
                 sign_html = (f"<form method='post' action='/workbench/signoff' class='ghost card'>"
                              f"<input type='hidden' name='run_id' value='{_e(run_id)}'>"
                              f"<label>Sign off this certification run (recorded in Langfuse:"
-                             f" sign-off queue + reviewer_verdict)</label>"
+                             f" review queue + human-annotation score)</label>"
                              f"<input name='name' placeholder='reviewer name' required>"
                              f"<textarea name='note' rows='2' placeholder='basis for approval'></textarea>"
                              f"<button type='submit'>Sign off (Approver)</button></form>")

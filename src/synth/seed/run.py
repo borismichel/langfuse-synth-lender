@@ -12,7 +12,7 @@ the committed golden-case fixtures on the way out.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -28,9 +28,9 @@ from .scores import (
     SCORE_CONFIGS,
     analyst_feedback_score,
     deterministic_scores,
+    human_annotation_scores,
     human_judge_pair,
     judge_scores,
-    reviewer_score,
 )
 from .traces import build_trace_events
 
@@ -153,13 +153,9 @@ def _spool_all(cfg: Config, plan: Plan, ing: Ingestor) -> None:
             if golden is not None:
                 ing.extend(_golden_scores(rng, cfg, spec, golden))
             elif spec.trace_id in completed:
-                # queue-completed traces: human verdict + judge pair (agreement story)
+                # queue-completed traces: the reviewer scored the certification
+                # criteria themselves (the ground truth) + judge pair (agreement story)
                 ing.extend(human_judge_pair(rng, spec, sc))
-                ing.add(reviewer_score(
-                    rng, spec.trace_id,
-                    spec.timestamp + timedelta(minutes=rng.sub("rev", spec.trace_id).randint(30, 200)),
-                    spec.environment, "confirmed",
-                    "Ground truth confirmed for certification-suite intake."))
             else:
                 ing.extend(judge_scores(rng, spec, sc, dip=dip))
 
@@ -220,9 +216,10 @@ def _golden_scores(rng: Rng, cfg: Config, spec, golden) -> list[dict]:
             f"answer states {wrong:,} but the cited table prints {right:,}")
         num("groundedness", 0.41)
         cat("citation_format", "pass")
-        events.append(reviewer_score(
-            rng, tid, ts + timedelta(hours=2), env, "corrected",
-            f"Human review: correct value is EUR {right:,}. {golden.analyst_comment}"))
+        # the human annotation scores the same criteria — that IS the ground truth
+        events.extend(human_annotation_scores(
+            rng, spec, wrong_numeric=True,
+            ground_truth_note=f"correct value is EUR {right:,}. {golden.analyst_comment}"))
     elif golden.key == "correct_escalation":
         cat("escalation_correctness", "pass",
             "out-of-scope request correctly routed to a human")

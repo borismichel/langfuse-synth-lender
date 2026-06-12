@@ -12,7 +12,7 @@
 | 3a | Automated eval — caught | Traces → tag `golden` | `{{ golden_map.numeric_hallucination.trace_id }}` — numeric_accuracy fail + groundedness 0.41 + reviewer corrected | {{ ui('traces/' + golden_map.numeric_hallucination.trace_id) }} |
 | 3b | Automated eval — contrast | Traces → tag `golden` | `{{ golden_map.citation_gap.trace_id }}` — citation_coverage 0.32, content fine | {{ ui('traces/' + golden_map.citation_gap.trace_id) }} |
 | 4 | Comparative certification | Datasets → {{ suite_info.name }} → Runs | `{{ baseline.name }}` vs `{{ cand_a.name }}` vs `{{ cand_b.name }}` (B fails numeric_lookup {{ '%.1f%%'|format((cand_b.pass_rates or {}).get('numeric_lookup', 0)*100) }} < {{ '%.0f%%'|format(gates.get('numeric_lookup', 0.95)*100) }}) | {{ ui('datasets') }} |
-| 5 | One evidence trail | Scores | filter by name: numeric_accuracy · groundedness · citation_coverage · analyst_feedback · reviewer_verdict | {{ ui('scores') }} |
+| 5 | One evidence trail | Scores | filter by name: numeric_accuracy · groundedness · citation_coverage · analyst_feedback (human annotations carry the 'human annotation' comment) | {{ ui('scores') }} |
 
 ## Golden traces (tag `golden`, <10s findable)
 

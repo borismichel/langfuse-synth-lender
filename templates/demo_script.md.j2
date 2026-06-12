@@ -45,7 +45,8 @@ into the suite (workbench → promote, or UI).
 ### Row 3 · Automated evaluation
 Open the golden trace **numeric hallucination** (`{{ golden_map.numeric_hallucination.trace_id }}`):
 the answer misstates the figure vs. the filing table — `numeric_accuracy = fail` with the
-arithmetic in the comment, judge `groundedness` 0.41, human `reviewer_verdict = corrected`.
+arithmetic in the comment, judge `groundedness` 0.41, and the human annotation scoring
+the same criteria (`numeric_accuracy = fail`, comment carrying the corrected value).
 Three independent instruments, one wrong answer. Contrast with **citation gap**
 (`{{ golden_map.citation_gap.trace_id }}`): fluent answer, `groundedness` fine,
 `citation_coverage` 0.32 — the judge catches what a skim would not.
@@ -63,8 +64,10 @@ which figure diverged from the printed table. A real decision, on screen: ship A
 
 ### Row 5 · One evidence trail
 Open scores{{ scores_link }} and filter: `numeric_accuracy` (deterministic), `groundedness` /
-`citation_coverage` (judge), `analyst_feedback` (user), `reviewer_verdict` (human) — all
-score objects on one surface, co-filterable across production traces AND experiment runs.
+`citation_coverage` (judge + human — the review queue binds the SAME criteria configs, so
+annotators score the certification scales to create ground truth; human entries carry the
+'human annotation' comment), `analyst_feedback` (user) — one surface, co-filterable across
+production traces AND experiment runs.
 On queue-completed traces, judge and human sit side by side (~88% agreement, visible
 disagreements — that's realism, not noise).
 > "Human, judge, deterministic, and user feedback — one scores surface, one audit trail."

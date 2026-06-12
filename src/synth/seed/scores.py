@@ -8,14 +8,15 @@ one name vocabulary across production traces and experiment runs:
                                ambience tied to the v6 prompt era)
 - ``citation_coverage``      — LLM judge, thin sample
 - ``analyst_feedback``       — user feedback, sparse (8–15% of traces)
-- ``reviewer_verdict``       — human annotation (the certification-review queue)
+- human annotation: the review queue binds the SAME criteria configs above —
+  reviewers score groundedness/citation/numeric scales to CREATE ground truth
 
 Realism (spec v2 §7): skewed distributions, occasional missing scores, judge–human
 agreement ~85–90% with visible disagreements.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..rng import Rng
 from .events import score_event
@@ -38,13 +39,14 @@ SCORE_CONFIGS: list[dict] = [
     {"name": "analyst_feedback", "dataType": "CATEGORICAL",
      "categories": [{"label": "up", "value": 1}, {"label": "down", "value": 0}],
      "description": "Analyst thumbs on an answer. Down-votes carry the analyst's comment and feed certification-review intake."},
-    {"name": "reviewer_verdict", "dataType": "CATEGORICAL",
-     "categories": [{"label": "confirmed", "value": 2}, {"label": "corrected", "value": 1},
-                    {"label": "escalate", "value": 0}],
-     "description": "Human annotation verdict from the certification-review queue; the comment carries the ground truth."},
 ]
 
-REVIEW_QUEUE_CONFIGS = ["reviewer_verdict"]
+# The certification-review queue binds the SAME score configs certification uses —
+# annotation is not a pass/fail verdict on results; the reviewer scores the criteria
+# themselves (groundedness, citation coverage, the deterministic scales), and those
+# human scores ARE the ground truth the suite inherits.
+REVIEW_QUEUE_CONFIGS = ["groundedness", "citation_coverage", "numeric_accuracy",
+                        "citation_format", "escalation_correctness"]
 # kept for older imports
 INTAKE_QUEUE_CONFIGS = SIGNOFF_QUEUE_CONFIGS = REVIEW_QUEUE_CONFIGS
 
@@ -140,25 +142,54 @@ def analyst_feedback_score(rng: Rng, trace_id: str, ts: datetime, environment: s
     return [ev], down
 
 
-def reviewer_score(rng: Rng, trace_id: str, ts: datetime, environment: str,
-                   verdict: str, comment: str) -> dict:
-    """Human annotation verdict (the certification-review queue's output)."""
-    s = rng.sub("reviewer", trace_id)
-    return score_event(score_id=s.score_id("verdict", trace_id), name="reviewer_verdict",
-                       value=verdict, data_type="CATEGORICAL", timestamp=ts,
-                       trace_id=trace_id, environment=environment, comment=comment)
+_HUMAN_NOTE = "human annotation (certification-review)"
+
+
+def human_annotation_scores(rng: Rng, spec, *, ground_truth_note: str = "",
+                            wrong_numeric: bool = False) -> list[dict]:
+    """The certification-review queue's output: the reviewer scores the SAME criteria
+    certification uses — these human scores are the ground truth the suite inherits.
+    Kind-aware like the automated checks; comments mark the human provenance (seeded
+    scores can't carry source=ANNOTATION — a documented cosmetic)."""
+    s = rng.sub("human", spec.trace_id)
+    ts = spec.timestamp + timedelta(minutes=s.randint(30, 200))
+    tid, env = spec.trace_id, spec.environment
+    note = f"{_HUMAN_NOTE}" + (f" — {ground_truth_note}" if ground_truth_note else "")
+    events: list[dict] = []
+
+    def cat(name, value):
+        events.append(score_event(score_id=s.score_id(f"h_{name}", tid), name=name,
+                                  value=value, data_type="CATEGORICAL", timestamp=ts,
+                                  trace_id=tid, environment=env, comment=note))
+
+    def num(name, value):
+        events.append(score_event(score_id=s.score_id(f"h_{name}", tid), name=name,
+                                  value=value, data_type="NUMERIC", timestamp=ts,
+                                  trace_id=tid, environment=env, comment=note))
+
+    num("groundedness", 0.25 if wrong_numeric else _skewed(s, 0.93))
+    num("citation_coverage", _skewed(s, 0.94))
+    if spec.question_kind in _NUMERIC_KINDS:
+        cat("numeric_accuracy", "fail" if wrong_numeric else "pass")
+    cat("citation_format", "pass")
+    if spec.question_kind in _OOS_KINDS:
+        cat("escalation_correctness",
+            "pass" if spec.answer.answer_type in ("declined", "abstained", "escalated")
+            else "fail")
+    return events
 
 
 def human_judge_pair(rng: Rng, spec, scoring) -> list[dict]:
-    """On queue-completed traces both a human verdict and judge scores exist —
-    correlated but not identical (agreement ~88%, visible disagreements)."""
+    """On queue-completed traces both human AND judge scores exist on the same
+    criteria scales — correlated but not identical (agreement ~88%, visible
+    disagreements; the judge's comment names the disagreement)."""
     s = rng.sub("agree", spec.trace_id)
     agree = s.chance(scoring.judge_human_agreement)
-    events = judge_scores(rng, spec, scoring, force=True)
-    if not agree and events:
-        # the judge disagrees with the human: shift its groundedness the other way
-        body = events[0]["body"]
+    events = human_annotation_scores(rng, spec)
+    judge = judge_scores(rng, spec, scoring, force=True)
+    if not agree and judge:
+        body = judge[0]["body"]
         v = float(body["value"])
         body["value"] = round(max(0.2, min(0.99, (1.2 - v))), 3)
-        body["comment"] = "judge verdict disagrees with the human annotation on this trace"
-    return events
+        body["comment"] = "judge disagrees with the human annotation on this trace"
+    return events + judge

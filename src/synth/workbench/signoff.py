@@ -3,7 +3,7 @@
 Roles are a demo-grade switcher (cookie; Builder / Validator / Approver — no real
 auth, which WORKBENCH.md states plainly): Builders design specs, anyone runs,
 **only an Approver signs off**. Sign-off is recorded three ways: in the workbench
-run record, as a ``reviewer_verdict`` score on a sample run trace, and as a
+run record, as a human-annotation score on a sample run trace, and as a
 COMPLETED item in the ``certification-signoff`` annotation queue — so Langfuse
 holds the approval evidence, not just the tool.
 
@@ -42,7 +42,7 @@ def sign_off(cfg: Config, run: WorkbenchRun, *, role: str, name: str,
 
 
 def _record_in_langfuse(cfg: Config, run: WorkbenchRun) -> str:
-    """Queue item + reviewer_verdict score on a sample run trace (best-effort)."""
+    """Queue item + human-annotation score on a sample run trace (best-effort)."""
     sample = next((r for r in run.rows if r.get("trace_id")), None)
     if sample is None:
         return "no run trace available"
@@ -55,16 +55,17 @@ def _record_in_langfuse(cfg: Config, run: WorkbenchRun) -> str:
 
         base = cfg.target.base_url
         qcfg = cfg.certification.queue
-        qid = ensure_queue(base, qcfg.name, "Human review feeding the certification suite.",
+        qid = ensure_queue(base, qcfg.name, "Ground-truth annotation on the certification criteria.",
                            score_config_ids(base, REVIEW_QUEUE_CONFIGS))
         add_queue_item(base, qid, sample["trace_id"], "COMPLETED")
         s = Rng(cfg.generation.seed).sub("wbsignoff", run.run_id)
         ev = score_event(
-            score_id=s.score_id("signoff", sample["trace_id"]), name="reviewer_verdict",
-            value="confirmed", data_type="CATEGORICAL",
+            score_id=s.score_id("signoff", sample["trace_id"]), name="groundedness",
+            value=1.0, data_type="NUMERIC",
             timestamp=datetime.now(timezone.utc), trace_id=sample["trace_id"],
             environment="default",
-            comment=(f"Certification sign-off: {run.signoff.get('by')} on {run.spec_ref} "
+            comment=(f"human annotation (certification-review) — sign-off by "
+                     f"{run.signoff.get('by')} on {run.spec_ref} "
                      f"(spec {run.spec_hash[:12]}…). {run.signoff.get('note', '')}".strip()))
         ing = Ingestor.from_env(base)
         ing.add(ev)

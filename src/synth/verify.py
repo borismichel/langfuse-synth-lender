@@ -197,10 +197,15 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
         for name in ("numeric_accuracy", "groundedness", "citation_coverage",
                      "analyst_feedback"):
             present[name] = len(_get_scores(base, name, limit_pages=1))
-        gnd = _get_scores(base, "groundedness", limit_pages=3)
-        human = sum(1 for s in gnd
-                    if "human annotation" in (s.get("comment") or ""))
-        present["human_annotation(groundedness)"] = human
+        # human annotations live on queue-completed traces (old timestamps — a global
+        # newest-first scan misses them); check a trace known to carry them
+        tid = state.golden_by_key("numeric_hallucination").get("trace_id")
+        human = 0
+        if tid:
+            trace = _get(base, f"/api/public/traces/{tid}")
+            human = sum(1 for s in trace.get("scores") or []
+                        if "human annotation" in (s.get("comment") or ""))
+        present["human_annotation(on golden trace)"] = human
         ok = all(v > 0 for v in present.values())
         report.add("score_methods", ok, f"score counts: {present}")
     except Exception as exc:  # noqa: BLE001

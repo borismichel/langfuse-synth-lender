@@ -337,6 +337,40 @@ def germanize(kind: str, q: AnalystQuestion, ans: CopilotAnswer) -> tuple[Analys
         qt, at = _DE_CONDUCT[kind]
         return (q.model_copy(update={"question": qt}),
                 ans.model_copy(update={"answer": at}))
+    # ratio + trend kinds — covered so a German session NEVER mixes languages mid-chat
+    if kind in ("dscr", "covenant", "leverage") and ans.answer_type == "factual" and ans.ratios:
+        if "dscr" in ans.ratios:
+            v = ans.ratios["dscr"]
+            cov = ""
+            if "covenant" in q.question.lower():
+                cov = (" Der 1,20x-Covenant ist eingehalten." if v >= 1.2
+                       else " Der 1,20x-Covenant ist NICHT eingehalten (Bruch).")
+            qt = ("Wie hoch ist die Kapitaldienstdeckung (DSCR) im GJ2025, und ist der "
+                  "1,20x-Covenant eingehalten?" if cov else
+                  "Wie hoch ist die Kapitaldienstdeckung (DSCR) im GJ2025?")
+            at = (f"Die Kapitaldienstdeckung von {q.borrower} beträgt im GJ2025 "
+                  f"{v:.2f}x (EBITDA / planmäßiger Kapitaldienst, gemäß zitierten "
+                  f"Auszügen).{cov}")
+        else:
+            v = ans.ratios.get("net_leverage", 0)
+            qt = "Wie hoch ist die Nettoverschuldung im Verhältnis zum EBITDA im GJ2025?"
+            at = (f"Die Nettoverschuldungsquote von {q.borrower} beträgt im GJ2025 "
+                  f"{v:.2f}x (Nettoverschuldung / EBITDA, gemäß zitierten Auszügen).")
+        return q.model_copy(update={"question": qt}), ans.model_copy(update={"answer": at})
+    if kind == "trend" and ans.answer_type == "factual":
+        if any(k.startswith("dscr_") for k in ans.ratios):
+            series = ", ".join(f"GJ{k[-4:]}: {v:.2f}x" for k, v in sorted(ans.ratios.items()))
+            vals = [v for _, v in sorted(ans.ratios.items())]
+            richtung = "verbessert" if vals and vals[-1] >= vals[0] else "verschlechtert"
+            qt = ("Wie hat sich die Kapitaldienstdeckung über die letzten drei "
+                  "Geschäftsjahre entwickelt?")
+            at = (f"Die Kapitaldienstdeckung von {q.borrower} hat sich {richtung}: "
+                  f"{series}. Werte je Geschäftsjahr aus den zitierten Auszügen.")
+        else:
+            series = ", ".join(f"GJ{k[-4:]}: EUR {v:,}" for k, v in sorted(ans.figures.items()))
+            qt = "Wie hat sich die Kennzahl über die letzten drei Geschäftsjahre entwickelt?"
+            at = f"Entwicklung bei {q.borrower}: {series} (gemäß zitierten Auszügen)."
+        return q.model_copy(update={"question": qt}), ans.model_copy(update={"answer": at})
     return q, ans
 
 

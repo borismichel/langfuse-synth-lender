@@ -83,6 +83,27 @@ def run_gate_verdict(cfg, run: CertRunPlan) -> tuple[bool, dict]:
 def _auth():
     return (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
 
+def _post_retry(url: str, body: dict, auth, *, attempts: int = 4, timeout: int = 25):
+    """POST with backoff — a transient network blip must not abort a seed (the
+    batch ingestor already retries; the per-object REST writes need it too)."""
+    import time
+
+    backoff = 2.0
+    for attempt in range(1, attempts + 1):
+        try:
+            resp = requests.post(url, json=body, auth=auth, timeout=timeout)
+            if resp.status_code in (429, 500, 502, 503, 504) and attempt < attempts:
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            return resp
+        except requests.RequestException:
+            if attempt == attempts:
+                raise
+            time.sleep(backoff)
+            backoff *= 2
+
+
 
 def create_run_items(base_url: str, runs: list[CertRunPlan],
                      log: Callable[[str], None] = print) -> int:
@@ -99,8 +120,8 @@ def create_run_items(base_url: str, runs: list[CertRunPlan],
                 "metadata": {"model": run.model, "verdict": run.verdict,
                              "release": f"{run.model}+analyst-copilot", "seeded": True},
             }
-            resp = requests.post(f"{base_url.rstrip('/')}/api/public/dataset-run-items",
-                                 json=body, auth=_auth(), timeout=20)
+            resp = _post_retry(f"{base_url.rstrip('/')}/api/public/dataset-run-items",
+                               body, _auth())
             if resp.status_code in (200, 201):
                 created += 1
                 continue

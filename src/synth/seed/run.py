@@ -120,7 +120,13 @@ def run_seed(cfg: Config, *, dry_run: bool = False, persist: bool = True,
         log(f"✓ seeded {n} experiment runs via run_experiment")
 
     # -- 5b. managed evaluators (Cloud / newer self-hosted with the unstable API) ---
+    # ORDERING INVARIANT (do NOT move before step 5): judges + their experiment-target
+    # evaluation rules must be created AFTER the experiment runs are seeded and flushed.
+    # Rules are live-ingestion only and never backfill, so a rule created here cannot
+    # fire on the already-ingested seeded runs — guaranteeing "no real judge runs" on
+    # the demo data. Creating the rule BEFORE the runs would let it judge them live.
     if cfg.certification.enabled and not dry_run:
+        lf.flush()  # ensure step-5 run traces/items are committed before any rule arms
         _populate_managed_evaluators(cfg, log)
 
     # -- 6. the certification-review queue ------------------------------------------
@@ -250,8 +256,24 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
     log(f"✓ code evaluators: {code_made}/{len(CODE_EVALUATORS)} created"
         + (f" (notes: {'; '.join(notes)})" if notes else ""))
 
-    # 2. LLM-as-judge evaluators — need an LLM connection
+    # 2. LLM-as-judge evaluators — need an LLM connection. We create the evaluator
+    # definitions AND scope an evaluation rule to the suite (target=experiment). The
+    # rule is SAFE w.r.t. "no real judge runs now": evaluation rules are live-ingestion
+    # only — they do NOT backfill the already-seeded experiment runs, so creating one
+    # fires zero judge calls today. It simply arms FUTURE experiment runs (e.g. a live
+    # `synth certify`). The groundedness/citation_coverage SCORES on the seeded runs are
+    # already present (deterministic, same score vocabulary), so the Evaluators page
+    # shows the judges as governed objects with matching historical scores.
     conn_ok, conn_msg = ensure_llm_connection(cfg)
+    if not conn_ok and "no ANTHROPIC_API_KEY" in conn_msg:
+        # No key in env, but a connection may already be configured in project settings.
+        try:
+            conns = requests.get(f"{base.rstrip('/')}/api/public/llm-connections",
+                                 params={"limit": 50}, auth=auth, timeout=15).json().get("data", [])
+        except Exception:  # noqa: BLE001
+            conns = []
+        if conns:
+            conn_msg = f"using existing project connection(s): {[c.get('provider') for c in conns]}"
     log(f"· LLM connection: {conn_msg}")
     judge_made, jnotes = 0, []
     for name in JUDGE_TEMPLATES:
@@ -265,7 +287,8 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
             if rerr:
                 jnotes.append(f"{name} rule: {rerr[:90]}")
     if judge_made:
-        log(f"✓ LLM judges: {judge_made}/{len(JUDGE_TEMPLATES)} created"
+        log(f"✓ LLM judges: {judge_made}/{len(JUDGE_TEMPLATES)} created + scoped to the suite "
+            "(experiment rule; no backfill, so no live judge runs on seeded data)"
             + (f" (notes: {'; '.join(jnotes)})" if jnotes else ""))
     else:
         log("· LLM judges: not created (" + ("; ".join(jnotes) or "unknown")

@@ -139,6 +139,22 @@ def list_judges(base: str) -> tuple[list[dict], bool]:
         return [], False
 
 
+def _judge_provider(base: str) -> str:
+    """The ``modelConfig.provider`` must match an existing LLM connection's ``provider``
+    value EXACTLY, including casing — the UI registers Anthropic as ``"Anthropic"``, so
+    sending ``"anthropic"`` yields a 422 "No valid LLM model found". Read the connection
+    list and return the provider whose adapter is anthropic (fallback ``"Anthropic"``)."""
+    try:
+        conns = requests.get(f"{base.rstrip('/')}/api/public/llm-connections",
+                             params={"limit": 50}, auth=_auth(), timeout=12).json().get("data", [])
+    except requests.RequestException:
+        conns = []
+    for c in conns:
+        if c.get("adapter") == "anthropic" and c.get("provider"):
+            return c["provider"]
+    return "Anthropic"
+
+
 def ensure_judge(cfg: Config, name: str) -> tuple[dict | None, str]:
     """Create (or reuse) one of the scenario judges. Returns (evaluator, error)."""
     base = cfg.target.base_url
@@ -160,7 +176,7 @@ def ensure_judge(cfg: Config, name: str) -> tuple[dict | None, str]:
             "reasoning": {"description": tpl["reasoning"]},
             "score": {"description": tpl["score"]},
         },
-        "modelConfig": {"provider": "anthropic", "model": cfg.certification.judge_model},
+        "modelConfig": {"provider": _judge_provider(base), "model": cfg.certification.judge_model},
     }
     resp = requests.post(f"{base.rstrip('/')}/api/public/unstable/evaluators",
                          json=body, auth=_auth(), timeout=20)

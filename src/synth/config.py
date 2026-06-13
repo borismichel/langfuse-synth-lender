@@ -94,6 +94,13 @@ class Certification(BaseModel):
     candidate_a_model: str = "claude-sonnet-4-6"
     candidate_b_model: str = "claude-haiku-4-5"
     judge_model: str = "claude-sonnet-4-6"
+    # Live production-trace monitoring with the SAME judges (groundedness,
+    # citation_coverage) via a target=observation evaluation rule. Sampling fraction on
+    # live copilot generations. 0.0 = the rule is created but DEACTIVATED (visible as
+    # configured-but-paused monitoring, zero judge triggers anywhere). Set to e.g. 0.05
+    # to opt in to low-rate live judging of NEW traffic — evaluation rules never
+    # backfill, so the backdated seed always triggers zero judge calls regardless.
+    trace_judge_sampling: float = 0.0
     baseline_run_day_offset: int = -6
     candidate_run_day_offset: int = -1
     n_flagged_reserved: int = 1

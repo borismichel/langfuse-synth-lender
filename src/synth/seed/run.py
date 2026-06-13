@@ -286,12 +286,24 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
             continue
         judge_made += 1
         if ds_ids:
-            _rule, rerr = ensure_rule(cfg, judge, ds_ids)
+            _rule, rerr = ensure_rule(cfg, judge, ds_ids)  # experiment, sampling 1.0
             if rerr:
-                jnotes.append(f"{name} rule: {rerr[:90]}")
+                jnotes.append(f"{name} exp-rule: {rerr[:80]}")
+        # Live production-trace monitoring with the SAME judge (target=observation).
+        # sampling=0.0 → created DEACTIVATED (paused, zero triggers). Either way, rules
+        # never backfill the backdated seed, so this fires zero judge calls on the seed.
+        s = cfg.certification.trace_judge_sampling
+        _trule, trerr = ensure_rule(cfg, judge, ds_ids, target="observation",
+                                    sampling=max(s, 0.01), enabled=s > 0)
+        if trerr:
+            jnotes.append(f"{name} trace-rule: {trerr[:80]}")
     if judge_made:
-        log(f"✓ LLM judges: {judge_made}/{len(JUDGE_TEMPLATES)} created + scoped to the suite "
-            "(experiment rule; no backfill, so no live judge runs on seeded data)"
+        s = cfg.certification.trace_judge_sampling
+        live = (f"live trace monitoring @ {s:.0%} sampling" if s > 0
+                else "trace monitoring created PAUSED (set trace_judge_sampling>0 to opt in)")
+        log(f"✓ LLM judges: {judge_made}/{len(JUDGE_TEMPLATES)} created + scoped to "
+            f"experiments (1.0) and traces ({live}); rules never backfill, so the seed "
+            "triggers zero judge runs"
             + (f" (notes: {'; '.join(jnotes)})" if jnotes else ""))
     else:
         log("· LLM judges: not created (" + ("; ".join(jnotes) or "unknown")

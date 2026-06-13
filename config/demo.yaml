@@ -43,6 +43,7 @@ certification:                         # the flagship narrative (spec v2 §2, §
   candidate_a_model: claude-sonnet-4-6 # passes, slightly better groundedness, lower cost
   candidate_b_model: claude-haiku-4-5  # FAILS the numeric-accuracy threshold (the real decision on screen)
   judge_model: claude-sonnet-4-6       # what the seeded judge scores claim to come from (visible in configs)
+  trace_judge_sampling: 0.0            # live trace-judge sampling. 0.0 = trace rules created PAUSED (zero triggers); set ~0.05 to opt in to low-rate live monitoring of NEW traffic (never backfills the seed)
   baseline_run_day_offset: -6          # baseline certification of the production release
   candidate_run_day_offset: -1         # candidates A and B ran yesterday
   n_flagged_reserved: 1                # one fresh thumbs-down kept un-promoted (live intake beat)

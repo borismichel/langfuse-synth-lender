@@ -57,7 +57,7 @@ needs the instance).
 | Independence / 4-eyes | The builder must not approve their own gate | **Built** (demo-grade) — role switcher + Approver-only sign-off |
 | Evidence pack | The validation file regulators actually read | **Built** — per-run export, sign-off-gated |
 | Evaluator code governance | A verdict must be traceable to the exact check logic | **Built** — committed files, SHA fingerprints in run metadata |
-| Evaluator management | Evaluators configured by hand drift from the record | **Built** — 3 code evaluators (`type=code`, no LLM connection) + 2 LLM judges (`groundedness`, `citation_coverage`) created and scoped to the suite via the (unstable) evaluator API + `target=experiment` rules; UI fallback |
+| Evaluator management | Evaluators configured by hand drift from the record | **Built** — 3 code evaluators (`type=code`, no LLM connection) + 2 LLM judges (`groundedness`, `citation_coverage`) created via the (unstable) evaluator API and scoped to **experiments** (rule `target=experiment`, sampling 1.0). The judges are *also* scoped to **live traces** (`target=observation`, low sampling, default PAUSED) — same evaluator, certification + monitoring on one surface. Code evaluators stay experiment-only (need `expected_output`). UI fallback |
 | Statistical sufficiency per slice | 4 items in a slice ≠ evidence; needs min-n / confidence intervals on pass rates | **Roadmap** |
 | Production-coverage drift | Does the suite mix still match live traffic? (question kinds vs. slices) | **Roadmap** |
 | Scheduled recertification / CI hooks | Periodic + event-triggered re-runs (`synth certify --gate` covers CI today) | **Roadmap** |

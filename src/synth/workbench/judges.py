@@ -205,40 +205,55 @@ def ensure_judge(cfg: Config, name: str) -> tuple[dict | None, str]:
     return None, f"{resp.status_code}: {resp.text[:400]}"
 
 
-def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str]) -> tuple[dict | None, str]:
-    """Create an evaluation rule scoping ``judge`` to experiment runs on the given
-    datasets (``target=experiment``, filtered by ``datasetId``).
+def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str], *,
+                target: str = "experiment", sampling: float = 1.0,
+                enabled: bool = True) -> tuple[dict | None, str]:
+    """Create an evaluation rule scoping ``judge`` to either certification
+    ``experiment`` runs (filtered by ``datasetId``) or live ``observation`` traffic
+    (filtered to copilot generations) — the SAME evaluator, two surfaces.
 
     Body shape verified against the OpenAPI spec / live Cloud API:
     - ``evaluator`` must carry ``{name, scope, type}`` — ``type`` is ``code`` or
       ``llm_as_judge`` (omitting it is the 400 ``invalid_body`` we hit before);
     - **code** evaluators take NO ``mapping`` — they read ``ctx`` directly and the
-      server auto-fills the variable mapping (confirmed: the response echoes a
-      server-generated mapping). Sending a guessed mapping is what was rejected;
-    - **llm_as_judge** evaluators need a ``mapping`` whose ``source`` is one of the
-      bare enum values {input, output, metadata, expected_output,
-      experiment_item_metadata}. Our two judges use only ``{{input}}``/``{{output}}``.
+      server auto-fills the variable mapping. They are also **experiment-only**: they
+      compare against ``expected_output``, which the API only allows for
+      ``target=experiment``; callers must not point them at ``observation``;
+    - **llm_as_judge** evaluators need a ``mapping`` whose ``source`` is a bare enum
+      value. For ``experiment``: {input, output, metadata, expected_output,
+      experiment_item_metadata}; for ``observation``: {input, output, metadata}. Our
+      two judges use only ``{{input}}``/``{{output}}`` — valid on both targets.
+
+    ``sampling`` is the fraction of matching objects to evaluate (1.0 for experiments;
+    a low rate for live traces). ``enabled=False`` creates the rule deactivated (no
+    preflight, zero triggers) — used for trace monitoring that ships paused.
 
     Server-side validation errors are surfaced verbatim (the unstable API returns
     structured recovery guidance)."""
     base = cfg.target.base_url
     etype = judge.get("type") or "llm_as_judge"
-    name = f"wb-{judge.get('name')}-experiments"
+    if target == "experiment":
+        name = f"wb-{judge.get('name')}-experiments"
+        rule_filter = [{"column": "datasetId", "operator": "any of",
+                        "value": dataset_ids, "type": "stringOptions"}]
+    else:
+        # Live monitoring: judge the copilot's answer generations as they ingest.
+        name = f"wb-{judge.get('name')}-traces"
+        rule_filter = [{"column": "type", "operator": "any of",
+                        "value": ["GENERATION"], "type": "stringOptions"}]
     body = {
         "name": name,
-        "target": "experiment",
-        "enabled": True,
+        "target": target,
+        "enabled": enabled,
         "evaluator": {"name": judge.get("name"),
                       "scope": judge.get("scope", "project"),
                       "type": etype},
-        "sampling": 1,
-        "filter": [{"column": "datasetId", "operator": "any of", "value": dataset_ids,
-                    "type": "stringOptions"}],
+        "sampling": sampling,
+        "filter": rule_filter,
     }
     if etype != "code":
-        # Map each declared prompt variable to a valid experiment source. Our judges
-        # use input/output only; expected_output/experiment_item_metadata are also
-        # valid for target=experiment if a future judge declares them.
+        # Map each declared prompt variable to a valid source for this target. Our
+        # judges use input/output only — valid on both observation and experiment.
         _src = {
             "input": "input",
             "output": "output",

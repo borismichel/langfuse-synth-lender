@@ -20,10 +20,12 @@
 - **Reminders:** the Evaluators page is pre-populated by `synth evaluators` (seed step
   5b) — 3 code evaluators (`numeric_accuracy`, `citation_format`,
   `escalation_correctness`, no LLM connection) + 2 LLM judges (`groundedness`,
-  `citation_coverage`, against the project's Anthropic connection), each scoped to the
-  suite via a `target=experiment` rule. Rules never backfill, so the seeded runs show
-  deterministic scores and **no live judge runs** were triggered; seeding made **zero**
-  model calls.
+  `citation_coverage`, against the project's Anthropic connection). The code evaluators
+  + judges are scoped to the suite via `target=experiment` rules (sampling 1.0); the
+  **same judges** are also scoped to live traces (`target=observation`, low sampling,
+  **default PAUSED**) — certification + continuous monitoring on one surface. Rules
+  never backfill, so the seeded runs/traces show deterministic scores and **no live
+  judge runs** were triggered; seeding made **zero** model calls.
 
 ---
 

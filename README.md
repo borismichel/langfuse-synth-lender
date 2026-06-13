@@ -107,19 +107,28 @@ each to the suite with a `target=experiment` evaluation rule:
   `escalation_correctness`) — `type=code`, deterministic Python mirroring
   `synth.grading`, **no LLM connection needed**. Code rules carry no variable mapping
   (the server auto-fills it from `ctx`).
-- **2 LLM-as-judge evaluators** (`groundedness`, `citation_coverage`) — created as
-  definitions against the project's Anthropic connection (the `modelConfig.provider`
-  must match the connection's exact casing, `"Anthropic"`; the claimed model is
-  `certification.judge_model`). Their `{{input}}`/`{{output}}` map to the bare
-  experiment sources `input`/`output`.
+- **2 LLM-as-judge evaluators** (`groundedness`, `citation_coverage`) — reference-free,
+  created as definitions against the project's Anthropic connection (the
+  `modelConfig.provider` must match the connection's exact casing, `"Anthropic"`; the
+  claimed model is `certification.judge_model`). They are scoped to **both surfaces**:
+  - `target=experiment` (sampling 1.0) — every certification run, like the code
+    evaluators;
+  - `target=observation` (low sampling) — the SAME judges monitoring live copilot
+    generations, the continuous-monitoring half of the story. Controlled by
+    `certification.trace_judge_sampling`: **0.0 (default) creates the trace rules
+    PAUSED** (visible, zero triggers); set it to ~`0.05` to opt in to low-rate live
+    judging of new traffic. The code evaluators stay experiment-only — they compare
+    against `expected_output`, which the API allows only for `target=experiment`, and
+    live traffic has no ground-truth label.
 
 Evaluation rules are **live-ingestion only — they never backfill**, so scoping a rule
-to the already-seeded runs fires **zero** evaluations on the demo data; it only arms
-*future* runs (e.g. a live `synth certify`). The seeded `groundedness`/
-`citation_coverage` **scores** on the historical runs are deterministic (same score
-vocabulary), so the judges show up as governed objects with matching history and no
-live judge runs. **Ordering invariant:** judges + rules are created *after* the
-experiment runs are seeded and flushed, so a rule can never judge the seeded data.
+(experiment or observation) fires **zero** evaluations on the already-seeded, backdated
+data; it only arms *future* runs/traffic (e.g. a live `synth certify` or a playground
+turn). The seeded `groundedness`/`citation_coverage` **scores** on the historical
+traces and runs are deterministic (same score vocabulary), so the judges show up as
+governed objects with matching history and no live judge runs. **Ordering invariant:**
+judges + rules are created *after* the experiment runs are seeded and flushed, so a rule
+can never judge the seeded data.
 
 **Experiment runs (cloud-vs-v3):** the baseline/A/B runs are created via the SDK `run_experiment` path (deterministic, no model calls), NOT the legacy REST `dataset-run-items` endpoint — on Langfuse ≥ v3.185 (incl. Cloud) the Experiments tab only surfaces `run_experiment`-created runs (REST runs exist via API but render an empty comparison grid; older self-hosted v3.179 showed them).
 

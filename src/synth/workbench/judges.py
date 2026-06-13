@@ -39,6 +39,25 @@ def _auth():
     return (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
 
 
+def ensure_llm_connection(cfg: Config) -> tuple[bool, str]:
+    """Upsert an LLM connection so the managed judges have a model to run on. Uses
+    ``ANTHROPIC_API_KEY`` from env (matches the judge_model provider). Returns
+    ``(ok, message)``. Without a key, the judges can't be created — the caller skips."""
+    base = cfg.target.base_url
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        return False, "no ANTHROPIC_API_KEY in env — add an LLM connection in project settings"
+    body = {"provider": "anthropic", "adapter": "anthropic", "secretKey": key,
+            "withDefaultModels": True}
+    resp = requests.put(f"{base.rstrip('/')}/api/public/llm-connections",
+                        json=body, auth=_auth(), timeout=20)
+    if resp.status_code in (200, 201):
+        return True, "anthropic LLM connection upserted"
+    if resp.status_code == 404:
+        return False, "llm-connections API not available on this server"
+    return False, f"{resp.status_code}: {resp.text[:200]}"
+
+
 def list_judges(base: str) -> tuple[list[dict], bool]:
     """Returns (evaluators, api_available)."""
     try:

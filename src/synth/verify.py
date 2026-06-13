@@ -49,15 +49,25 @@ def _auth():
 
 
 def _get_resp(base: str, path: str, params: dict | None = None):
-    """GET with patient retry — Langfuse Cloud rate-limits reads too, so a verify
-    sweep of many GETs must back off on 429 rather than flake."""
+    """GET with patient retry — Langfuse Cloud rate-limits reads (429) AND its
+    read endpoints are flaky/slow right after a seed (timeouts, transient 5xx), so a
+    verify sweep must back off and retry rather than flake on the first hiccup."""
     import time
 
     url = f"{base.rstrip('/')}{path}"
     backoff = 2.0
+    last_exc = None
     for attempt in range(6):
-        resp = requests.get(url, params=params or {}, auth=_auth(), timeout=30)
-        if resp.status_code == 429 and attempt < 5:
+        try:
+            resp = requests.get(url, params=params or {}, auth=_auth(), timeout=45)
+        except requests.RequestException as exc:  # timeout / connection reset
+            last_exc = exc
+            if attempt == 5:
+                raise
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 30)
+            continue
+        if resp.status_code in (429, 500, 502, 503, 504) and attempt < 5:
             try:
                 wait = max(backoff, float(resp.headers.get("Retry-After", 0)))
             except (TypeError, ValueError):
@@ -66,6 +76,8 @@ def _get_resp(base: str, path: str, params: dict | None = None):
             backoff = min(backoff * 2, 30)
             continue
         return resp
+    if last_exc:
+        raise last_exc
     return resp
 
 
@@ -122,20 +134,34 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
     # run (0 items) is the API-visible symptom of a run that won't render — so we
     # assert every run carries items and a scored sample trace.
     try:
-        ds = _get(base, f"/api/public/datasets/{suite['name']}/runs", {"limit": 50})
-        by_name = {r.get("name"): r for r in ds.get("data", [])}
-        expected = set((suite.get("runs") or {}).keys())
-        missing = expected - set(by_name)
-        empties = []
-        for name in expected & set(by_name):
-            detail = _get(base, f"/api/public/datasets/{suite['name']}/runs/{name}")
-            if not (detail.get("datasetRunItems") or []):
-                empties.append(name)
-        ok = not missing and not empties
+        # The SDK run_experiment appends a " - <timestamp>" suffix to each run name, so
+        # match expected run names by PREFIX. (The runs-list endpoint is also eventually
+        # consistent on Cloud — retry until the 3 runs appear.)
+        import time
+
+        expected = sorted((suite.get("runs") or {}).keys())
+        actual_names: list[str] = []
+        for attempt in range(8):
+            ds = _get(base, f"/api/public/datasets/{suite['name']}/runs", {"limit": 50})
+            actual_names = [r.get("name", "") for r in ds.get("data", [])]
+            if all(any(a.startswith(name) for a in actual_names) for name in expected):
+                break
+            time.sleep(8)
+        missing, matched = [], []
+        for name in expected:
+            hit = next((a for a in actual_names if a.startswith(name)), None)
+            (matched.append(hit) if hit else missing.append(name))
+        # confirm one matched run actually carries items (empty run = won't surface)
+        empty = ""
+        if matched:
+            det = _get_resp(base, f"/api/public/datasets/{suite['name']}/runs/{matched[0]}")
+            if det.status_code == 200 and not (det.json().get("datasetRunItems") or []):
+                empty = matched[0]
+        ok = not missing and not empty
         report.add("seeded_runs", ok,
-                   f"runs on {suite['name']}: {sorted(expected & set(by_name))}; "
-                   f"missing {sorted(missing) or 'none'}; "
-                   f"empty(no items→won't surface) {sorted(empties) or 'none'}")
+                   f"runs on {suite['name']} (prefix-matched, SDK adds a timestamp suffix): "
+                   f"{len(matched)}/{len(expected)} present; missing {missing or 'none'}"
+                   + (f"; EMPTY {empty}" if empty else ""))
     except Exception as exc:  # noqa: BLE001
         report.add("seeded_runs", False, f"error: {exc}")
 

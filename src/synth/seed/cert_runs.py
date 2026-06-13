@@ -25,16 +25,9 @@ from typing import Callable
 import requests
 
 from ..agent import answer_deterministic
-from ..grading import SCORE_NAME_FOR_CHECK, grade, item_passes
+from ..grading import grade, item_passes
 from ..models import AnalystQuestion
 from .certification import CertRunPlan
-
-# kind-aware deterministic checks per scenario (matches production score emission)
-_EMIT = {"numeric_lookup": ("figure_accuracy", "citation_accuracy"),
-         "trend": ("figure_accuracy", "citation_accuracy"),
-         "covenant": ("figure_accuracy", "citation_accuracy"),
-         "summary": ("citation_accuracy",),
-         "out_of_scope": ("abstention_correct",)}
 
 
 def _run_evaluators(run: CertRunPlan):

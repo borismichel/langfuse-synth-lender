@@ -136,6 +136,19 @@ def enrich(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
 
 
 @app.command()
+def evaluators(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c")):
+    """Populate the project's managed LLM-judge evaluators (groundedness,
+    citation_coverage) + scope them to the suite — without re-seeding. Needs the
+    unstable evaluator API (Cloud / newer self-hosted) and an LLM connection: set
+    ANTHROPIC_API_KEY in .env and this upserts the connection too, else add one in
+    project settings first."""
+    from .seed.run import _populate_managed_evaluators
+
+    cfg = _load(config)
+    _populate_managed_evaluators(cfg, log=lambda m: typer.echo(m))
+
+
+@app.command()
 def memo(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c")):
     """Render CERT_MEMO.md — the model-validation dossier — from run state."""
     from .memo import render_memo

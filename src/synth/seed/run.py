@@ -207,7 +207,13 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
 
     import requests
 
-    from ..workbench.judges import JUDGE_TEMPLATES, ensure_judge, ensure_rule, list_judges
+    from ..workbench.judges import (
+        JUDGE_TEMPLATES,
+        ensure_judge,
+        ensure_llm_connection,
+        ensure_rule,
+        list_judges,
+    )
 
     base = cfg.target.base_url
     _, available = list_judges(base)
@@ -215,6 +221,8 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
         log("· managed evaluators: unstable evaluator API not present (older self-hosted) "
             "— create the LLM judges in the UI per DEMO_SCRIPT (skipped)")
         return
+    conn_ok, conn_msg = ensure_llm_connection(cfg)
+    log(f"· LLM connection: {conn_msg}")
     auth = (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
     ds_ids = []
     try:

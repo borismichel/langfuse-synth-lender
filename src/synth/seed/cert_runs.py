@@ -38,78 +38,63 @@ _EMIT = {"numeric_lookup": ("figure_accuracy", "citation_accuracy"),
 
 
 def _run_evaluators(run: CertRunPlan):
-    """Code evaluators for one run — the same vocabulary as production, kind-aware,
-    with per-run judge means so the comparison deltas are visible (baseline ~0.91,
-    candidate A ~0.94, candidate B ~0.88)."""
+    """Code evaluators for one run, in the documented run_experiment shape: a LIST of
+    evaluator functions, **each returning a single ``Evaluation``** (a single function
+    returning a list is not accepted by the SDK — the run lands with zero items). Same
+    score vocabulary as production; per-run judge means make the comparison deltas
+    visible (baseline ~0.91, candidate A ~0.94, candidate B ~0.88). LLM-as-judge
+    evaluators would slot into this same list identically."""
     from langfuse import Evaluation
 
     mu = run.groundedness_mu
 
-    def evaluator(*, input, output, expected_output, metadata=None, **kwargs):
+    def _det(check: str, score_name: str):
+        def evaluator(*, input, output, expected_output, metadata=None, **kwargs):
+            ok, detail = grade(expected_output, output)[check]
+            return Evaluation(name=score_name, value="pass" if ok else "fail",
+                              comment=None if ok else detail)
+        evaluator.__name__ = score_name
+        return evaluator
+
+    def groundedness(*, input, output, expected_output, metadata=None, **kwargs):
         checks = grade(expected_output, output)
-        scenario = (metadata or {}).get("scenario") or (metadata or {}).get("slice") \
-            or "numeric_lookup"
-        out = []
-        for check in _EMIT.get(scenario, ("figure_accuracy",)):
-            ok, detail = checks[check]
-            out.append(Evaluation(name=SCORE_NAME_FOR_CHECK[check],
-                                  value="pass" if ok else "fail",
-                                  comment=None if ok else detail))
-        grounded_ok = checks["grounded_ok"][0] and checks["figure_accuracy"][0]
-        out.append(Evaluation(name="groundedness", value=round(mu if grounded_ok else 0.45, 3)))
-        out.append(Evaluation(name="citation_coverage",
-                              value=round(0.94 if checks["citation_accuracy"][0] else 0.4, 3)))
-        return out
+        ok = checks["grounded_ok"][0] and checks["figure_accuracy"][0]
+        return Evaluation(name="groundedness", value=round(mu if ok else 0.45, 3))
 
-    return [evaluator]
+    def citation_coverage(*, input, output, expected_output, metadata=None, **kwargs):
+        ok = grade(expected_output, output)["citation_accuracy"][0]
+        return Evaluation(name="citation_coverage", value=round(0.94 if ok else 0.4, 3))
+
+    return [_det("figure_accuracy", "numeric_accuracy"),
+            _det("citation_accuracy", "citation_format"),
+            _det("abstention_correct", "escalation_correctness"),
+            groundedness, citation_coverage]
 
 
-def _seed_task(run: CertRunPlan, error_map: dict, lf, prompt, pver: int):
-    """Deterministic, no-model task: replay the templated answer with this run's
-    injected error mode, and log it as an ``answer`` generation (model + prompt link +
-    natural-language chat input) so the experiment trace matches a live certify run."""
-    from ..content import answer_messages
-
-    def task(*args, **kwargs):
-        item = kwargs.get("item") if "item" in kwargs else (args[0] if args else None)
+def _seed_task(run: CertRunPlan, error_map: dict):
+    """Deterministic, no-model task in the EXACT documented run_experiment shape:
+    ``task(*, item, **kwargs)`` returns the output; run_experiment owns the item trace
+    (do NOT create observations inside — that detaches the item trace and the run lands
+    with zero items). Replays the templated answer with this run's injected error mode."""
+    def task(*, item, **kwargs):
         q = AnalystQuestion.from_input(item.input)
         err = error_map.get(getattr(item, "id", None))
-        ans = answer_deterministic(q, error_mode=err)
-        try:
-            with lf.start_as_current_observation(
-                as_type="generation", name="answer", model=run.model,
-                input=answer_messages(_prompt_system(prompt, pver), q),
-                model_parameters={"temperature": 0},
-                prompt=prompt if prompt is not None else None) as gen:
-                gen.update(output=ans.model_dump())
-        except Exception:  # noqa: BLE001 — trace richness is best-effort; the run still records
-            pass
-        return ans.model_dump()
+        return answer_deterministic(q, error_mode=err).model_dump()
 
     return task
 
 
-def _prompt_system(prompt, pver: int) -> str:
-    from .prompts import prompt_text
-
-    if prompt is not None:
-        for m in (getattr(prompt, "prompt", None) or []):
-            if m.get("role") == "system":
-                return m.get("content", "")
-    return prompt_text(pver)
-
-
 def seed_experiment_runs(cfg, lf, cert, log: Callable[[str], None] = print) -> int:
     """Create baseline / candidate A / candidate B as SDK experiment runs (no model
-    calls). Returns the number of runs created."""
+    calls), using the documented run_experiment config that surfaces in the Experiments
+    tab and supports both code and LLM-as-judge evaluators. Returns runs created."""
     cert_cfg = cfg.certification
     dataset = lf.get_dataset(cert_cfg.dataset.name)
     try:
-        prompt = lf.get_prompt(cert_cfg.prompt_name, label="production", type="chat",
-                               cache_ttl_seconds=0)
-        pver = getattr(prompt, "version", cert_cfg.production_version)
+        pver = getattr(lf.get_prompt(cert_cfg.prompt_name, label="production", type="chat",
+                                     cache_ttl_seconds=0), "version", cert_cfg.production_version)
     except Exception:  # noqa: BLE001
-        prompt, pver = None, cert_cfg.production_version
+        pver = cert_cfg.production_version
 
     for run in cert.runs:
         error_map = {it.item_id: it.run_errors.get(run.key) for it in cert.suite}
@@ -118,7 +103,7 @@ def seed_experiment_runs(cfg, lf, cert, log: Callable[[str], None] = print) -> i
             description=run.description,
             metadata={"model": run.model, "verdict": run.verdict,
                       "release": f"{run.model}+{cert_cfg.prompt_name}.v{pver}", "seeded": True},
-            task=_seed_task(run, error_map, lf, prompt, pver),
+            task=_seed_task(run, error_map),
             evaluators=_run_evaluators(run))
         lf.flush()
         rates = run_pass_rates(run)

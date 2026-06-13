@@ -127,7 +127,10 @@ def run_seed(cfg: Config, *, dry_run: bool = False, persist: bool = True,
     # the demo data. Creating the rule BEFORE the runs would let it judge them live.
     if cfg.certification.enabled and not dry_run:
         lf.flush()  # ensure step-5 run traces/items are committed before any rule arms
-        _populate_managed_evaluators(cfg, log)
+        try:
+            _populate_managed_evaluators(cfg, log)
+        except Exception as exc:  # noqa: BLE001 — evaluators are best-effort (self-hosted gap)
+            log(f"· evaluators: skipped (self-hosted gap or transient error: {exc})")
 
     # -- 6. the certification-review queue ------------------------------------------
     queue_info = {"name": cfg.certification.queue.name,

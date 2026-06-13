@@ -39,6 +39,20 @@ def _auth():
     return (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
 
 
+def _request(method: str, url: str, **kw) -> tuple[requests.Response | None, str]:
+    """Best-effort HTTP for the unstable / newer-only surfaces. These endpoints are a
+    **self-hosted gap**: on older self-hosted (v3) they may 404, or the host may time
+    out / reset the connection. Every caller degrades gracefully, so a transport-level
+    failure must return ``(None, msg)`` rather than raise — a missing capability can
+    never abort the seed. (HTTP error *statuses* are returned to the caller as a normal
+    response so it can branch on 404/422/etc.)"""
+    kw.setdefault("timeout", 20)
+    try:
+        return requests.request(method, url, **kw), ""
+    except requests.RequestException as exc:
+        return None, f"request failed (self-hosted gap or transient): {exc}"
+
+
 # Deterministic CODE evaluators (unstable API, type="code") — no LLM connection needed.
 # Each is self-contained Python implementing evaluate(ctx) -> EvaluationResult, mirroring
 # synth.grading so a UI-run evaluator and the seed agree. The runtime injects Score and
@@ -100,8 +114,10 @@ def ensure_code_evaluator(cfg: Config, name: str, source: str) -> tuple[dict | N
         return match, ""
     body = {"name": name, "type": "code", "sourceCode": source.strip() + "\n",
             "sourceCodeLanguage": "PYTHON"}
-    resp = requests.post(f"{base.rstrip('/')}/api/public/unstable/evaluators",
-                         json=body, auth=_auth(), timeout=20)
+    resp, err = _request("POST", f"{base.rstrip('/')}/api/public/unstable/evaluators",
+                         json=body, auth=_auth())
+    if resp is None:
+        return None, err
     if resp.status_code in (200, 201):
         return resp.json(), ""
     return None, f"{resp.status_code}: {resp.text[:300]}"
@@ -117,8 +133,10 @@ def ensure_llm_connection(cfg: Config) -> tuple[bool, str]:
         return False, "no ANTHROPIC_API_KEY in env — add an LLM connection in project settings"
     body = {"provider": "anthropic", "adapter": "anthropic", "secretKey": key,
             "withDefaultModels": True}
-    resp = requests.put(f"{base.rstrip('/')}/api/public/llm-connections",
-                        json=body, auth=_auth(), timeout=20)
+    resp, err = _request("PUT", f"{base.rstrip('/')}/api/public/llm-connections",
+                         json=body, auth=_auth())
+    if resp is None:
+        return False, err
     if resp.status_code in (200, 201):
         return True, "anthropic LLM connection upserted"
     if resp.status_code == 404:
@@ -178,8 +196,10 @@ def ensure_judge(cfg: Config, name: str) -> tuple[dict | None, str]:
         },
         "modelConfig": {"provider": _judge_provider(base), "model": cfg.certification.judge_model},
     }
-    resp = requests.post(f"{base.rstrip('/')}/api/public/unstable/evaluators",
-                         json=body, auth=_auth(), timeout=20)
+    resp, err = _request("POST", f"{base.rstrip('/')}/api/public/unstable/evaluators",
+                         json=body, auth=_auth())
+    if resp is None:
+        return None, err
     if resp.status_code in (200, 201):
         return resp.json(), ""
     return None, f"{resp.status_code}: {resp.text[:400]}"
@@ -230,8 +250,10 @@ def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str]) -> tuple[dict 
         variables = judge.get("variables") or ["input", "output"]
         body["mapping"] = [{"variable": var, "source": _src.get(var, "input")}
                            for var in variables]
-    resp = requests.post(f"{base.rstrip('/')}/api/public/unstable/evaluation-rules",
-                         json=body, auth=_auth(), timeout=20)
+    resp, err = _request("POST", f"{base.rstrip('/')}/api/public/unstable/evaluation-rules",
+                         json=body, auth=_auth())
+    if resp is None:
+        return None, err
     if resp.status_code in (200, 201):
         return resp.json(), ""
     if resp.status_code == 409:

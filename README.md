@@ -80,6 +80,7 @@ trace/object to open) — filled with this run's real ids.
 synth plan | seed | import-spool | verify        # the deterministic seed pipeline
 synth probe                                      # backdated-ingestion check (run FIRST on Cloud)
 synth certify --model <id> [--gate|--offline]    # live certification run (real model calls)
+synth evaluators                                 # populate code evaluators + LLM judges, scope to the suite
 synth enrich                                     # optional ~50-call archetype layer (prose variety)
 synth memo | script                              # CERT_MEMO.md · DEMO_SCRIPT.md + DEMO_MAP.md
 synth submit | playground                        # live copilot + /dossier + /workbench
@@ -96,12 +97,31 @@ requirements → features → demo beats.
 Backdated **batch ingestion** (`/api/public/ingestion`, ingestion-version-4 header) —
 the OTel SDK can't backfill; two-phase recoverable seeding (NDJSON spool → chunked
 import; resume with `synth import-spool`); deterministic BLAKE2b ids (re-seeding
-upserts); **seeded dataset runs** via `dataset-run-items` + backdated `createdAt`;
-annotation queue via the public queues API. Managed judges (groundedness,
-citation_coverage) are created once — UI, or the workbench's unstable-API path; their
-prompts and the claimed judge model (`certification.judge_model`) are in the runbook.
+upserts); **seeded experiment runs** via the SDK `run_experiment` path + backdated
+caseload; annotation queue via the public queues API.
 
-**Experiment runs (cloud-vs-v3):** the baseline/A/B runs are created via the SDK `run_experiment` path (deterministic, no model calls), NOT the legacy REST `dataset-run-items` endpoint — on Langfuse ≥ v3.185 (incl. Cloud) the Experiments tab only surfaces `run_experiment`-created runs (REST runs exist via API but render an empty comparison grid; older self-hosted v3.179 showed them). On Cloud the seed also populates the managed LLM judges (groundedness, citation_coverage) via the unstable evaluator API when an LLM connection is configured.
+**Evaluators (`synth evaluators`, also seed step 5b).** The kit populates the
+project's Evaluators page programmatically via the unstable evaluator API and scopes
+each to the suite with a `target=experiment` evaluation rule:
+- **3 code evaluators** (`numeric_accuracy`, `citation_format`,
+  `escalation_correctness`) — `type=code`, deterministic Python mirroring
+  `synth.grading`, **no LLM connection needed**. Code rules carry no variable mapping
+  (the server auto-fills it from `ctx`).
+- **2 LLM-as-judge evaluators** (`groundedness`, `citation_coverage`) — created as
+  definitions against the project's Anthropic connection (the `modelConfig.provider`
+  must match the connection's exact casing, `"Anthropic"`; the claimed model is
+  `certification.judge_model`). Their `{{input}}`/`{{output}}` map to the bare
+  experiment sources `input`/`output`.
+
+Evaluation rules are **live-ingestion only — they never backfill**, so scoping a rule
+to the already-seeded runs fires **zero** evaluations on the demo data; it only arms
+*future* runs (e.g. a live `synth certify`). The seeded `groundedness`/
+`citation_coverage` **scores** on the historical runs are deterministic (same score
+vocabulary), so the judges show up as governed objects with matching history and no
+live judge runs. **Ordering invariant:** judges + rules are created *after* the
+experiment runs are seeded and flushed, so a rule can never judge the seeded data.
+
+**Experiment runs (cloud-vs-v3):** the baseline/A/B runs are created via the SDK `run_experiment` path (deterministic, no model calls), NOT the legacy REST `dataset-run-items` endpoint — on Langfuse ≥ v3.185 (incl. Cloud) the Experiments tab only surfaces `run_experiment`-created runs (REST runs exist via API but render an empty comparison grid; older self-hosted v3.179 showed them).
 
 Known cosmetics (say it before they ask): prompt-version *creation* timestamps can't
 be backdated (era linkage on generations carries the story); seeded scores show source

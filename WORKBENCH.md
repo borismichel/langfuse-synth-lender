@@ -57,7 +57,7 @@ needs the instance).
 | Independence / 4-eyes | The builder must not approve their own gate | **Built** (demo-grade) — role switcher + Approver-only sign-off |
 | Evidence pack | The validation file regulators actually read | **Built** — per-run export, sign-off-gated |
 | Evaluator code governance | A verdict must be traceable to the exact check logic | **Built** — committed files, SHA fingerprints in run metadata |
-| Judge management | Judges configured by hand drift from the record | **Built** — created + scoped via the (unstable) evaluator API, UI fallback |
+| Evaluator management | Evaluators configured by hand drift from the record | **Built** — 3 code evaluators (`type=code`, no LLM connection) + 2 LLM judges (`groundedness`, `citation_coverage`) created and scoped to the suite via the (unstable) evaluator API + `target=experiment` rules; UI fallback |
 | Statistical sufficiency per slice | 4 items in a slice ≠ evidence; needs min-n / confidence intervals on pass rates | **Roadmap** |
 | Production-coverage drift | Does the suite mix still match live traffic? (question kinds vs. slices) | **Roadmap** |
 | Scheduled recertification / CI hooks | Periodic + event-triggered re-runs (`synth certify --gate` covers CI today) | **Roadmap** |
@@ -68,7 +68,14 @@ needs the instance).
 ## Honesty notes (for the presenter)
 
 - The evaluator/judge **unstable API** is marked unstable by Langfuse; the workbench
-  surfaces server validation errors verbatim and falls back to UI instructions.
+  surfaces server validation errors verbatim and falls back to UI instructions. Two
+  gotchas it handles: code evaluators take **no variable mapping** (the server fills it
+  from `ctx`), and a judge's `modelConfig.provider` must match the LLM connection's
+  **exact casing** (`"Anthropic"`, not `"anthropic"`).
+- Evaluation **rules never backfill** — they score only live ingestion after creation.
+  Judges are therefore created *after* the experiment runs are seeded, so the seeded
+  data shows deterministic judge scores and **no live judge runs are triggered**; the
+  rule only arms future runs.
 - Injected code executes **in-process** after compile/AST/smoke acceptance — a demo
   pattern. Production needs sandboxing and code review.
 - Roles are a **cookie switcher**, not auth. The point being demonstrated is the

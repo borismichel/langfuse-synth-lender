@@ -17,8 +17,13 @@
   `{{ cand_b.name }}` ({{ cand_b.date }}) — **candidate B fails numeric accuracy**
   ({{ '%.1f%%'|format((cand_b.pass_rates or {}).get('numeric_lookup', 0)*100) }} vs ≥{{ '%.0f%%'|format(gates.get('numeric_lookup', 0.95)*100) }})
 - **Queue:** `{{ queue.name }}` — {{ queue.completed }} completed, {{ queue.pending }} pending (alive)
-- **Reminders:** managed judges (groundedness, citation_coverage) are created once
-  (UI, or the workbench's API path); seeding made **zero** model calls.
+- **Reminders:** the Evaluators page is pre-populated by `synth evaluators` (seed step
+  5b) — 3 code evaluators (`numeric_accuracy`, `citation_format`,
+  `escalation_correctness`, no LLM connection) + 2 LLM judges (`groundedness`,
+  `citation_coverage`, against the project's Anthropic connection), each scoped to the
+  suite via a `target=experiment` rule. Rules never backfill, so the seeded runs show
+  deterministic scores and **no live judge runs** were triggered; seeding made **zero**
+  model calls.
 
 ---
 

@@ -21,7 +21,7 @@ from ..rng import Rng
 from ..state import REPO_ROOT, RunState
 from ..timegen import day_anchor, iso_date, now_utc
 from .annotation import seed_queue
-from .cert_runs import create_run_items, run_gate_verdict, run_pass_rates, run_score_events
+from .cert_runs import run_gate_verdict, run_pass_rates
 from .generator import Plan, build_plan
 from .ingest import Ingestor, assert_demo_project, ensure_score_config
 from .scores import (
@@ -58,13 +58,19 @@ def run_seed(cfg: Config, *, dry_run: bool = False, persist: bool = True,
     s = plan.summary
     log(f"  {s['total_traces']} traces in {s['sessions']} sessions "
         f"({s['golden_traces']} golden, {s['by_language'].get('de', 0)} German), "
-        f"{s['cert_run_traces']} cert-run traces, ~{s['estimated_events']} events")
+        f"{s['experiment_runs']} experiment runs ({s['experiment_run_items']} items), "
+        f"~{s['estimated_events']} events")
 
     # -- 1. score configs ------------------------------------------------------
     if not dry_run:
         for sc in SCORE_CONFIGS:
             ensure_score_config(base_url, sc)
-        log(f"✓ {len(SCORE_CONFIGS)} score configs ensured")
+        from .annotation import score_config_ids
+        from . import scores as scores_mod
+
+        names = [c["name"] for c in SCORE_CONFIGS]
+        scores_mod.CONFIG_IDS.update(dict(zip(names, score_config_ids(base_url, names))))
+        log(f"✓ {len(SCORE_CONFIGS)} score configs ensured (ids linked)")
 
     # -- 2. the analyst-copilot prompt history ----------------------------------
     versions = {"latest": cfg.certification.n_prompt_versions,
@@ -83,8 +89,8 @@ def run_seed(cfg: Config, *, dry_run: bool = False, persist: bool = True,
     # -- 3. backdated traces + scores --------------------------------------------
     ing = Ingestor.from_env(base_url, dry_run=dry_run, spool_path=spool_path)
     _spool_all(cfg, plan, ing)
-    log(f"✓ generated {ing.spooled} events across "
-        f"{len(plan.specs) + len(plan.run_trace_specs)} traces → spooled to {spool_path}")
+    log(f"✓ generated {ing.spooled} events across {len(plan.specs)} traces "
+        f"→ spooled to {spool_path}")
     if dry_run:
         log("  dry-run: spool written, nothing imported")
     elif not do_import:
@@ -104,10 +110,18 @@ def run_seed(cfg: Config, *, dry_run: bool = False, persist: bool = True,
         log(f"✓ suite {suite_info['name']!r}: {suite_info['items_created']} items "
             f"({suite_info['curated']} curated from production)")
 
-    # -- 5. backdated experiment runs (baseline / candidate A / candidate B) -------
-    if cfg.certification.enabled and not dry_run and do_import:
-        n = create_run_items(base_url, plan.cert.runs, log=log)
-        log(f"✓ seeded {n} dataset-run items across {len(plan.cert.runs)} experiment runs")
+    # -- 5. experiment runs (baseline / candidate A / candidate B) -----------------
+    # Created via the SDK run_experiment path (deterministic, no model calls) so they
+    # surface in the Experiments tab on every Langfuse version (cert_runs.py header).
+    if cfg.certification.enabled and not dry_run:
+        from .cert_runs import seed_experiment_runs
+
+        n = seed_experiment_runs(cfg, lf, plan.cert, log=log)
+        log(f"✓ seeded {n} experiment runs via run_experiment")
+
+    # -- 5b. managed evaluators (Cloud / newer self-hosted with the unstable API) ---
+    if cfg.certification.enabled and not dry_run:
+        _populate_managed_evaluators(cfg, log)
 
     # -- 6. the certification-review queue ------------------------------------------
     queue_info = {"name": cfg.certification.queue.name,
@@ -175,15 +189,58 @@ def _spool_all(cfg: Config, plan: Plan, ing: Ingestor) -> None:
             else:
                 events = []
             ing.extend(events)
-
-        # seeded experiment runs: traces + scores
-        for spec in plan.run_trace_specs:
-            ing.extend(build_trace_events(rng, cfg, spec))
-        for run in plan.cert.runs:
-            for ev in run_score_events(rng, run):
-                ing.add(ev)
+        # NOTE: the baseline/A/B experiment runs are NOT spooled here — they are
+        # created online via the SDK run_experiment path (seed_experiment_runs), which
+        # is the only path the Experiments tab surfaces on newer Langfuse (see
+        # cert_runs.py header for the cloud-vs-v3 discrepancy).
     finally:
         ing.close_spool()
+
+
+def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> None:
+    """Pre-create the LLM-as-judge evaluators (groundedness, citation_coverage) and
+    scope them to the suite's experiment runs — so the project's Evaluators section is
+    populated, not a manual UI step. Best-effort: the unstable evaluator API is Cloud /
+    newer-self-hosted only, and the judges need an LLM connection in project settings to
+    run — anything missing is logged and skipped, never fatal."""
+    import os
+
+    import requests
+
+    from ..workbench.judges import JUDGE_TEMPLATES, ensure_judge, ensure_rule, list_judges
+
+    base = cfg.target.base_url
+    _, available = list_judges(base)
+    if not available:
+        log("· managed evaluators: unstable evaluator API not present (older self-hosted) "
+            "— create the LLM judges in the UI per DEMO_SCRIPT (skipped)")
+        return
+    auth = (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
+    ds_ids = []
+    try:
+        data = requests.get(f"{base.rstrip('/')}/api/public/v2/datasets",
+                            params={"limit": 100}, auth=auth, timeout=15).json().get("data", [])
+        ds_ids = [d["id"] for d in data
+                  if d.get("name") == cfg.certification.dataset.name and d.get("id")]
+    except Exception:  # noqa: BLE001
+        pass
+    made, notes = 0, []
+    for name in JUDGE_TEMPLATES:
+        judge, err = ensure_judge(cfg, name)
+        if err:
+            notes.append(f"{name}: {err[:90]}")
+            continue
+        made += 1
+        if ds_ids:
+            _rule, rerr = ensure_rule(cfg, judge, ds_ids)
+            if rerr:
+                notes.append(f"{name} rule: {rerr[:90]}")
+    if made:
+        log(f"✓ managed evaluators: {made}/{len(JUDGE_TEMPLATES)} LLM judges populated"
+            + (f" (notes: {'; '.join(notes)})" if notes else ""))
+    else:
+        log("· managed evaluators: not created (" + ("; ".join(notes) or "unknown")
+            + ") — likely no LLM connection in project settings; add one and they run on new runs")
 
 
 def _golden_scores(rng: Rng, cfg: Config, spec, golden) -> list[dict]:
@@ -195,15 +252,19 @@ def _golden_scores(rng: Rng, cfg: Config, spec, golden) -> list[dict]:
     ts, tid, env = spec.timestamp, spec.trace_id, spec.environment
     events: list[dict] = []
 
+    from .scores import config_id
+
     def cat(name, value, comment=None):
         events.append(score_event(score_id=s.score_id(name, tid), name=name, value=value,
                                   data_type="CATEGORICAL", timestamp=ts, trace_id=tid,
-                                  environment=env, comment=comment))
+                                  environment=env, comment=comment,
+                                  config_id=config_id(name)))
 
     def num(name, value):
         events.append(score_event(score_id=s.score_id(name, tid), name=name, value=value,
                                   data_type="NUMERIC", timestamp=ts, trace_id=tid,
-                                  observation_id=spec.answer_obs_id, environment=env))
+                                  observation_id=spec.answer_obs_id, environment=env,
+                                  config_id=config_id(name)))
 
     if golden.key == "covenant_summary":
         num("groundedness", 0.96)

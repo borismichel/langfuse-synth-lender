@@ -70,6 +70,7 @@ class TraceSpec:
     desk: str = "mid-market"
     token_factor: float = 1.0          # candidate A runs cheaper (tighter outputs)
     turn_index: int = 0
+    history: list = field(default_factory=list)  # [(prev_question, prev_answer)] earlier turns
     slow_factor: float = 1.0
     error_step: str | None = None      # tool name to fail (then retried) | "generation"
     ratings_call: bool = False         # occasional internal_ratings_lookup
@@ -221,7 +222,7 @@ def build_trace_events(rng: Rng, cfg: Config, spec: TraceSpec, prompt_version: i
     s, e = cur.advance(answer_latency_ms if answer_latency_ms is not None
                        else sample_latency_ms(r, "work", spec.slow_factor))
     if answer_input is None:  # seed: the prompt chat turn, compiled like live
-        answer_input = answer_messages(prompt_text(pver), q)
+        answer_input = answer_messages(prompt_text(pver), q, spec.history)
     if answer_usage is not None:  # live: real token counts, no cache split
         ti, ot, cr, cc = answer_usage[0], answer_usage[1], 0, 0
     else:

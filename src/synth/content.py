@@ -245,10 +245,43 @@ def chat_messages(system: str, user: str) -> list[dict]:
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def answer_messages(system_text: str, q: AnalystQuestion) -> list[dict]:
-    """The answer turn exactly as ``answer()``'s live path compiles it: the managed
-    system prompt plus the question JSON as the user message."""
-    return chat_messages(system_text, q.model_dump_json())
+def format_excerpts(q: AnalystQuestion) -> str:
+    """The retrieved filing extracts as a readable text block (what RAG injects into
+    the turn) — NOT a JSON dump. Lines render as printed in the statement."""
+    blocks = []
+    for e in q.excerpts:
+        head = f"[{e.section_id}] {e.title}"
+        if e.unit_note:
+            head += f" ({e.unit_note})"
+        rows = "\n".join(f"  {lab}: {val}" for lab, val in e.lines)
+        blocks.append(head + ("\n" + rows if rows else ""))
+    return "\n\n".join(blocks)
+
+
+def user_turn(q: AnalystQuestion) -> str:
+    """One analyst turn as a human-readable message: the natural-language question
+    with the retrieved extracts attached as context (the RAG turn the copilot saw)."""
+    extracts = format_excerpts(q)
+    if not extracts:
+        return q.question
+    return f"{q.question}\n\n— Retrieved filing extracts —\n{extracts}"
+
+
+def answer_messages(system_text: str, q: AnalystQuestion,
+                    history: list | None = None) -> list[dict]:
+    """The answer turn as a real chat: system prompt, the prior turns of this case
+    review threaded as user/assistant messages, then the current natural-language
+    user turn (question + retrieved extracts). ``history`` is a list of
+    ``(prev_question, prev_answer)`` for earlier turns in the same session — so a
+    multi-turn session reads as a progressing conversation and the rendered history
+    matches the per-turn context-token growth.
+    """
+    msgs = [{"role": "system", "content": system_text}]
+    for prev_q, prev_ans in (history or []):
+        msgs.append({"role": "user", "content": prev_q.question})
+        msgs.append({"role": "assistant", "content": prev_ans.answer})
+    msgs.append({"role": "user", "content": user_turn(q)})
+    return msgs
 
 
 def filings_search_io(q: AnalystQuestion, filing: str) -> tuple[dict, dict]:

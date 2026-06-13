@@ -8,7 +8,7 @@
 - **Target:** `{{ base_url }}`  ·  project **{{ project_name }}**
 - **Seeded:** {{ summary.total_traces }} traces in {{ summary.sessions }} sessions over {{ window_days }} days
   ({{ summary.by_language.get('de', 0) }} German · {{ summary.golden_traces }} golden ·
-  {{ summary.nightly_batch_traces }} nightly-batch ambience), plus {{ summary.cert_run_traces }} experiment-run traces
+  {{ summary.nightly_batch_traces }} nightly-batch ambience), plus {{ summary.experiment_runs }} experiment runs ({{ summary.experiment_run_items }} items)
 - **Prompt:** `{{ prompt_name }}` — {{ prompt_versions.latest }} versions; `production` = v{{ prompt_versions.production }},
   `staging` = v{{ prompt_versions.staging }}; generations link to the version live at their timestamp
 - **Suite:** `{{ suite_info.name }}` — {{ suite_info["items"] }} items

@@ -53,6 +53,14 @@ INTAKE_QUEUE_CONFIGS = SIGNOFF_QUEUE_CONFIGS = REVIEW_QUEUE_CONFIGS
 _NUMERIC_KINDS = ("figure", "trend", "dscr", "covenant", "leverage")
 _OOS_KINDS = ("unanswerable", "advice", "speculation", "pii", "escalation")
 
+# name -> score-config id, populated by run_seed after configs are ensured, so every
+# emitted score is linked to its config (dry-run leaves it empty -> configId omitted).
+CONFIG_IDS: dict[str, str] = {}
+
+
+def config_id(name: str):
+    return CONFIG_IDS.get(name)
+
 
 def _skewed(rng: Rng, mu: float, lo: float = 0.45) -> float:
     """Skewed-realistic quality draw: most mass near the top, a visible left tail."""
@@ -72,7 +80,7 @@ def deterministic_scores(rng: Rng, spec, scoring) -> list[dict]:
         ok = spec.answer.answer_type != "factual" or bool(spec.answer.citations)
         ok = ok and not s.chance(0.01)
         events.append(score_event(
-            score_id=s.score_id("citfmt", spec.trace_id), name="citation_format",
+            score_id=s.score_id("citfmt", spec.trace_id), name="citation_format", config_id=config_id("citation_format"),
             value="pass" if ok else "fail", data_type="CATEGORICAL",
             timestamp=spec.timestamp, trace_id=spec.trace_id, environment=spec.environment,
             comment=None if ok else "answer carries no machine-readable citations"))
@@ -83,14 +91,14 @@ def deterministic_scores(rng: Rng, spec, scoring) -> list[dict]:
             wrong = next(iter(spec.answer.figures.values()), 0)
             detail = f"figure {wrong:,} does not match the printed table value"
         events.append(score_event(
-            score_id=s.score_id("numacc", spec.trace_id), name="numeric_accuracy",
+            score_id=s.score_id("numacc", spec.trace_id), name="numeric_accuracy", config_id=config_id("numeric_accuracy"),
             value="fail" if bad else "pass", data_type="CATEGORICAL",
             timestamp=spec.timestamp, trace_id=spec.trace_id, environment=spec.environment,
             comment=detail))
     if spec.question_kind in _OOS_KINDS and s.chance(scoring.escalation_check_coverage):
         ok = spec.answer.answer_type in ("declined", "abstained", "escalated")
         events.append(score_event(
-            score_id=s.score_id("esc", spec.trace_id), name="escalation_correctness",
+            score_id=s.score_id("esc", spec.trace_id), name="escalation_correctness", config_id=config_id("escalation_correctness"),
             value="pass" if ok else "fail", data_type="CATEGORICAL",
             timestamp=spec.timestamp, trace_id=spec.trace_id, environment=spec.environment))
     return events
@@ -109,7 +117,7 @@ def judge_scores(rng: Rng, spec, scoring, *, dip: float = 0.0,
         if spec.error_mode in ("sign", "units"):
             mu = 0.45  # the judge notices the figure contradicting the extract
         events.append(score_event(
-            score_id=gs.score_id("ground", spec.trace_id), name="groundedness",
+            score_id=gs.score_id("ground", spec.trace_id), name="groundedness", config_id=config_id("groundedness"),
             value=_skewed(gs, mu, lo=0.3), data_type="NUMERIC", timestamp=spec.timestamp,
             trace_id=spec.trace_id, observation_id=spec.answer_obs_id,
             environment=spec.environment))
@@ -120,7 +128,7 @@ def judge_scores(rng: Rng, spec, scoring, *, dip: float = 0.0,
                                             and not spec.answer.citations):
             mu = 0.35  # fluent but unsourced — what a human skim would miss
         events.append(score_event(
-            score_id=cs.score_id("citcov", spec.trace_id), name="citation_coverage",
+            score_id=cs.score_id("citcov", spec.trace_id), name="citation_coverage", config_id=config_id("citation_coverage"),
             value=_skewed(cs, mu, lo=0.2), data_type="NUMERIC", timestamp=spec.timestamp,
             trace_id=spec.trace_id, environment=spec.environment))
     return events
@@ -135,7 +143,7 @@ def analyst_feedback_score(rng: Rng, trace_id: str, ts: datetime, environment: s
     if not force and not s.chance(response_ratio):
         return [], False
     down = True if force_down else s.chance(down_rate)
-    ev = score_event(score_id=s.score_id("feedback", trace_id), name="analyst_feedback",
+    ev = score_event(score_id=s.score_id("feedback", trace_id), name="analyst_feedback", config_id=config_id("analyst_feedback"),
                      value="down" if down else "up", data_type="CATEGORICAL", timestamp=ts,
                      trace_id=trace_id, environment=environment,
                      comment=comment if down else None)
@@ -160,12 +168,14 @@ def human_annotation_scores(rng: Rng, spec, *, ground_truth_note: str = "",
     def cat(name, value):
         events.append(score_event(score_id=s.score_id(f"h_{name}", tid), name=name,
                                   value=value, data_type="CATEGORICAL", timestamp=ts,
-                                  trace_id=tid, environment=env, comment=note))
+                                  trace_id=tid, environment=env, comment=note,
+                                  config_id=config_id(name)))
 
     def num(name, value):
         events.append(score_event(score_id=s.score_id(f"h_{name}", tid), name=name,
                                   value=value, data_type="NUMERIC", timestamp=ts,
-                                  trace_id=tid, environment=env, comment=note))
+                                  trace_id=tid, environment=env, comment=note,
+                                  config_id=config_id(name)))
 
     num("groundedness", 0.25 if wrong_numeric else _skewed(s, 0.93))
     num("citation_coverage", _skewed(s, 0.94))

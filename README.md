@@ -101,6 +101,8 @@ annotation queue via the public queues API. Managed judges (groundedness,
 citation_coverage) are created once — UI, or the workbench's unstable-API path; their
 prompts and the claimed judge model (`certification.judge_model`) are in the runbook.
 
+**Experiment runs (cloud-vs-v3):** the baseline/A/B runs are created via the SDK `run_experiment` path (deterministic, no model calls), NOT the legacy REST `dataset-run-items` endpoint — on Langfuse ≥ v3.185 (incl. Cloud) the Experiments tab only surfaces `run_experiment`-created runs (REST runs exist via API but render an empty comparison grid; older self-hosted v3.179 showed them). On Cloud the seed also populates the managed LLM judges (groundedness, citation_coverage) via the unstable evaluator API when an LLM connection is configured.
+
 Known cosmetics (say it before they ask): prompt-version *creation* timestamps can't
 be backdated (era linkage on generations carries the story); seeded scores show source
 `API`; queue items show seed-time creation dates.

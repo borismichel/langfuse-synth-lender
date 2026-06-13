@@ -335,13 +335,17 @@ def answer_deterministic(question: "AnalystQuestion | dict",
 def _answer_live(q: AnalystQuestion, model: str, *, lf, anth, prompt_name: str) -> CopilotAnswer:
     # cache_ttl_seconds=0: always pull the current `production` version, so the pinned
     # prompt version recorded on the run is exactly what ran.
+    from .content import user_turn
+
     prompt = lf.get_prompt(prompt_name, label="production", type="chat", cache_ttl_seconds=0)
-    question_json = q.model_dump_json()
-    messages = prompt.compile(question=question_json)
+    # the user turn is the analyst's natural-language question with the retrieved
+    # extracts attached (RAG-style) — not a JSON dump of the input object.
+    turn = user_turn(q)
+    messages = prompt.compile(question=turn)
 
     system = "\n\n".join(m["content"] for m in messages if m.get("role") == "system")
     turns = [m for m in messages if m.get("role") != "system"] or \
-        [{"role": "user", "content": question_json}]
+        [{"role": "user", "content": turn}]
 
     chat = [{"role": m.get("role"), "content": m.get("content")} for m in messages]
     with lf.start_as_current_observation(

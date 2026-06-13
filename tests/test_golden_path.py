@@ -173,15 +173,44 @@ def test_prompt_era_linkage():
         assert s.prompt_version == version_for_timestamp(cfg, RUN_DATE, s.timestamp)
 
 
-def test_run_traces_carry_their_model_and_run_dates_backdated():
+def test_experiment_runs_carry_model_and_error_map():
+    """Runs are created via run_experiment (no pre-built traces); each run knows its
+    model and the per-item error modes the deterministic task replays."""
     cfg, plan = _plan()
-    models = {s.model_override for s in plan.run_trace_specs}
+    assert plan.run_trace_specs == []   # no backdated cert-run traces anymore
+    models = {r.model for r in plan.cert.runs}
     assert models == {cfg.certification.incumbent_model,
                       cfg.certification.candidate_a_model,
                       cfg.certification.candidate_b_model}
-    for run in plan.cert.runs:
-        for ri in run.items:
-            assert ri.timestamp < RUN_DATE
+    run_b = next(r for r in plan.cert.runs if r.key == "candidate_b")
+    err_map = {it.item_id: it.run_errors.get("candidate_b") for it in plan.cert.suite}
+    assert sum(1 for v in err_map.values() if v) == 4   # candidate B's 4 injected errors
+
+
+def test_chat_is_natural_language_not_json():
+    """Production answer generations read as a chat: NL user turns, threaded
+    user/assistant history on multi-turn sessions, no JSON-dump user messages."""
+    import json as _json
+
+    cfg, plan = _plan(scale=0.1)
+    by_sess: dict = {}
+    for s in plan.ambient_specs:
+        by_sess.setdefault(s.session_id, []).append(s)
+    multi = sorted(next(v for v in by_sess.values() if len(v) >= 3), key=lambda s: s.turn_index)
+    last = multi[-1]
+    events = build_trace_events(plan.rng, cfg, last)
+    msgs = next(e for e in events if e["body"].get("name") == "answer")["body"]["input"]
+    assert msgs[0]["role"] == "system"
+    # the prior turns are threaded as alternating user/assistant
+    assert msgs[1]["role"] == "user" and msgs[2]["role"] == "assistant"
+    assert any(m["role"] == "assistant" for m in msgs)         # real conversation
+    for m in msgs:
+        if m["role"] == "user":
+            txt = m["content"].strip()
+            assert not (txt.startswith("{") and "case_id" in txt[:40])   # never a JSON dump
+    # the final user turn carries retrieved extracts inline (RAG), readable
+    assert "Retrieved filing extracts" in msgs[-1]["content"]
+    assert msgs[-1]["content"].lstrip().startswith(last.question.question[:20])
 
 
 def test_language_is_consistent_per_user_and_session():

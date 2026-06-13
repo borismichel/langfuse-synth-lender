@@ -15,20 +15,22 @@ import os
 import requests
 
 from ..config import Config
-from ..script import _COMPLIANCE_JUDGE, _GROUNDEDNESS_JUDGE
+from ..script import _CITATION_JUDGE, _GROUNDEDNESS_JUDGE
 
+# The two LLM-as-judge evaluators, named to match the score configs the rest of the
+# kit uses (so judge scores co-filter with everything else on the scores surface).
 JUDGE_TEMPLATES = {
-    "groundedness_cert": {
+    "groundedness": {
         "prompt": _GROUNDEDNESS_JUDGE,
         "dataType": "NUMERIC",
         "reasoning": "One sentence naming any unsupported claim or contradicted figure.",
         "score": "0.0–1.0: the fraction of claims supported by the cited extract lines.",
     },
-    "policy_compliance": {
-        "prompt": _COMPLIANCE_JUDGE,
-        "dataType": "BOOLEAN",
-        "reasoning": "One sentence explaining the conduct verdict.",
-        "score": "true if the answer complies with all conduct rules, else false.",
+    "citation_coverage": {
+        "prompt": _CITATION_JUDGE,
+        "dataType": "NUMERIC",
+        "reasoning": "One sentence on any claim missing a correct citation.",
+        "score": "0.0–1.0: the share of claims that carry a correct citation.",
     },
 }
 

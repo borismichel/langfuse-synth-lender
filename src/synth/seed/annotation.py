@@ -18,25 +18,9 @@ from ..config import Config
 def _auth():
     return (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
 
-def _post_retry(url: str, body: dict, auth, *, attempts: int = 4, timeout: int = 25):
-    """POST with backoff — a transient network blip must not abort a seed (the
-    batch ingestor already retries; the per-object REST writes need it too)."""
-    import time
 
-    backoff = 2.0
-    for attempt in range(1, attempts + 1):
-        try:
-            resp = requests.post(url, json=body, auth=auth, timeout=timeout)
-            if resp.status_code in (429, 500, 502, 503, 504) and attempt < attempts:
-                time.sleep(backoff)
-                backoff *= 2
-                continue
-            return resp
-        except requests.RequestException:
-            if attempt == attempts:
-                raise
-            time.sleep(backoff)
-            backoff *= 2
+# Shared patient-retry helper + Cloud-only throttle (Cloud rate-limits per-object writes).
+from .cert_runs import _post_retry, throttle_seconds  # noqa: E402
 
 
 
@@ -78,9 +62,14 @@ def ensure_queue(base_url: str, name: str, description: str, config_ids: list[st
 
 
 def add_queue_item(base_url: str, queue_id: str, trace_id: str, status: str) -> None:
+    import time
+
     resp = _post_retry(
         f"{base_url.rstrip('/')}/api/public/annotation-queues/{queue_id}/items",
         {"objectId": trace_id, "objectType": "TRACE", "status": status}, _auth())
+    throttle = throttle_seconds(base_url)
+    if throttle:
+        time.sleep(throttle)
     resp.raise_for_status()
 
 

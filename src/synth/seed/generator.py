@@ -60,11 +60,13 @@ def build_plan(cfg: Config, run_date: datetime) -> Plan:
     flagged = _build_flagged_pending(cfg, run_date, rng, users, cert)
     ambient = _build_ambient(cfg, run_date, rng, users)
     batch = _build_nightly_batch(cfg, run_date, rng)
-    run_traces = _build_run_traces(cfg, rng, cert)
+    # NOTE: experiment-run traces are no longer pre-generated — the baseline/A/B runs
+    # are created online via run_experiment (cert_runs.seed_experiment_runs), the only
+    # path the Experiments tab surfaces on newer Langfuse.
 
     plan = Plan(cfg=cfg, run_date=run_date, rng=rng, cert=cert,
                 ambient_specs=ambient, golden_specs=golden, flagged_specs=flagged,
-                curated_specs=curated, batch_specs=batch, run_trace_specs=run_traces,
+                curated_specs=curated, batch_specs=batch, run_trace_specs=[],
                 users=users)
     plan.specs = ambient + curated + golden + flagged + batch
     plan.sessions = _collect_sessions(plan.specs)
@@ -100,6 +102,7 @@ def _build_ambient(cfg: Config, run_date: datetime, rng: Rng, users: list[dict])
         filing = filing_type(r, borrower, 2025)
         desk = desk_for(borrower)
         ts = start
+        history: list = []   # (question, answer) of earlier turns in THIS case review
         for turn in range(_turns(r.sub("turns", g), gen.volume)):
             if ts >= run_date:
                 break
@@ -127,10 +130,13 @@ def _build_ambient(cfg: Config, run_date: datetime, rng: Rng, users: list[dict])
                 trace_id=r.trace_id("ambient", g, turn), timestamp=ts, question=q,
                 answer=ans, user_id=user["userId"], session_id=sid, environment=env,
                 kind="ambient", question_kind=kind, turn_index=turn,
+                history=list(history),   # prior turns of this conversation
                 prompt_version=version_for_timestamp(cfg, run_date, ts),
                 language=language, filing=filing, desk=desk,
                 ratings_call=r.sub("rate", g, turn).chance(0.06),
                 error_step=err))
+            if err != "generation":      # a failed turn produced no answer to carry forward
+                history.append((q, ans))
             ts = ts + timedelta(seconds=40 + r.uniform(0, 240))
     return specs
 
@@ -249,23 +255,6 @@ def _build_nightly_batch(cfg: Config, run_date: datetime, rng: Rng) -> list[Trac
     return specs
 
 
-def _build_run_traces(cfg: Config, rng: Rng, cert: Certification) -> list[TraceSpec]:
-    r = rng.sub("certruns")
-    specs: list[TraceSpec] = []
-    for run in cert.runs:
-        for n, ri in enumerate(run.items):
-            tid = r.trace_id("certrun", run.key, n)
-            ri.trace_id = tid
-            specs.append(TraceSpec(
-                trace_id=tid, timestamp=ri.timestamp, question=ri.item.question,
-                answer=ri.got, user_id=None, session_id=None, environment="default",
-                kind="cert_run", question_kind=_kind_for(ri.item.question.question),
-                model_override=run.model, token_factor=run.token_factor,
-                prompt_version=cfg.certification.production_version,
-                tags=[f"cert-run:{run.run_name}"]))
-    return specs
-
-
 def _kind_for(question_text: str) -> str:
     t = question_text.lower()
     if "develop over the last" in t or "across the last" in t:
@@ -335,7 +324,7 @@ def _summarise(cfg: Config, run_date: datetime, plan: Plan) -> dict:
     scenarios = {}
     for it in cert.suite:
         scenarios[it.scenario] = scenarios.get(it.scenario, 0) + 1
-    n_events_est = len(plan.specs) * 8 + len(plan.run_trace_specs) * 8 + len(plan.specs) * 2
+    n_events_est = len(plan.specs) * 8 + len(plan.specs) * 2
     return {
         "run_date": run_date.isoformat(),
         "window_start": window_start(run_date, cfg.generation.window_days).isoformat(),
@@ -348,7 +337,8 @@ def _summarise(cfg: Config, run_date: datetime, plan: Plan) -> dict:
         "curated_source_traces": len(plan.curated_specs),
         "flagged_pending_traces": len(plan.flagged_specs),
         "nightly_batch_traces": len(plan.batch_specs),
-        "cert_run_traces": len(plan.run_trace_specs),
+        "experiment_runs": len(cert.runs),
+        "experiment_run_items": sum(len(r.items) for r in cert.runs),
         "estimated_events": n_events_est,
         "by_environment": by_env,
         "by_language": by_lang,

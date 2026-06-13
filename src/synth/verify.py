@@ -48,8 +48,29 @@ def _auth():
     return (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
 
 
+def _get_resp(base: str, path: str, params: dict | None = None):
+    """GET with patient retry — Langfuse Cloud rate-limits reads too, so a verify
+    sweep of many GETs must back off on 429 rather than flake."""
+    import time
+
+    url = f"{base.rstrip('/')}{path}"
+    backoff = 2.0
+    for attempt in range(6):
+        resp = requests.get(url, params=params or {}, auth=_auth(), timeout=30)
+        if resp.status_code == 429 and attempt < 5:
+            try:
+                wait = max(backoff, float(resp.headers.get("Retry-After", 0)))
+            except (TypeError, ValueError):
+                wait = backoff
+            time.sleep(min(wait, 30))
+            backoff = min(backoff * 2, 30)
+            continue
+        return resp
+    return resp
+
+
 def _get(base: str, path: str, params: dict | None = None) -> dict:
-    resp = requests.get(f"{base.rstrip('/')}{path}", params=params or {}, auth=_auth(), timeout=30)
+    resp = _get_resp(base, path, params)
     resp.raise_for_status()
     return resp.json()
 
@@ -94,15 +115,27 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
     except Exception as exc:  # noqa: BLE001
         report.add("suite_items", False, f"error: {exc}")
 
-    # -- the three seeded runs ------------------------------------------------
+    # -- the three seeded runs: exist AND have linked item results -------------
+    # Guards the cloud-vs-v3 discrepancy: the Experiments tab on newer Langfuse
+    # (≥ v3.185, incl. Cloud) only surfaces runs created via run_experiment, not the
+    # legacy REST dataset-run-items path. We can't query the UI view, but an empty
+    # run (0 items) is the API-visible symptom of a run that won't render — so we
+    # assert every run carries items and a scored sample trace.
     try:
         ds = _get(base, f"/api/public/datasets/{suite['name']}/runs", {"limit": 50})
-        runs_seen = {r.get("name") for r in ds.get("data", [])}
+        by_name = {r.get("name"): r for r in ds.get("data", [])}
         expected = set((suite.get("runs") or {}).keys())
-        missing = expected - runs_seen
-        report.add("seeded_runs", not missing,
-                   f"runs on {suite['name']}: {sorted(runs_seen & expected)}; "
-                   f"missing {sorted(missing) or 'none'}")
+        missing = expected - set(by_name)
+        empties = []
+        for name in expected & set(by_name):
+            detail = _get(base, f"/api/public/datasets/{suite['name']}/runs/{name}")
+            if not (detail.get("datasetRunItems") or []):
+                empties.append(name)
+        ok = not missing and not empties
+        report.add("seeded_runs", ok,
+                   f"runs on {suite['name']}: {sorted(expected & set(by_name))}; "
+                   f"missing {sorted(missing) or 'none'}; "
+                   f"empty(no items→won't surface) {sorted(empties) or 'none'}")
     except Exception as exc:  # noqa: BLE001
         report.add("seeded_runs", False, f"error: {exc}")
 
@@ -121,8 +154,7 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
     try:
         found = 0
         for g in state.golden:
-            r = requests.get(f"{base.rstrip('/')}/api/public/traces/{g['trace_id']}",
-                             auth=_auth(), timeout=20)
+            r = _get_resp(base, f"/api/public/traces/{g['trace_id']}")
             if r.status_code == 200 and "golden" in (r.json().get("tags") or []):
                 found += 1
         ok = found == len(state.golden) and found >= 4
@@ -137,8 +169,7 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
         ok = False
         detail = "no flagged_pending in state"
         if tid:
-            exists = requests.get(f"{base.rstrip('/')}/api/public/traces/{tid}",
-                                  auth=_auth(), timeout=20).status_code == 200
+            exists = _get_resp(base, f"/api/public/traces/{tid}").status_code == 200
             downs = _get_scores(base, "analyst_feedback")
             has_down = any(s.get("traceId") == tid and (s.get("comment") or "").strip()
                            for s in downs)

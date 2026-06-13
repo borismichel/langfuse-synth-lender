@@ -198,17 +198,21 @@ def _spool_all(cfg: Config, plan: Plan, ing: Ingestor) -> None:
 
 
 def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> None:
-    """Pre-create the LLM-as-judge evaluators (groundedness, citation_coverage) and
-    scope them to the suite's experiment runs — so the project's Evaluators section is
-    populated, not a manual UI step. Best-effort: the unstable evaluator API is Cloud /
-    newer-self-hosted only, and the judges need an LLM connection in project settings to
-    run — anything missing is logged and skipped, never fatal."""
+    """Populate the project's Evaluators section, scoped to the suite's experiment runs:
+    - **code evaluators** (numeric_accuracy, citation_format, escalation_correctness) —
+      deterministic, **no LLM connection needed**, created always;
+    - **LLM-as-judge** (groundedness, citation_coverage) — need an LLM connection
+      (ANTHROPIC_API_KEY upserts one), else logged and skipped.
+    Best-effort: the unstable evaluator API is Cloud / newer-self-hosted only; anything
+    missing is logged, never fatal."""
     import os
 
     import requests
 
     from ..workbench.judges import (
+        CODE_EVALUATORS,
         JUDGE_TEMPLATES,
+        ensure_code_evaluator,
         ensure_judge,
         ensure_llm_connection,
         ensure_rule,
@@ -218,11 +222,9 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
     base = cfg.target.base_url
     _, available = list_judges(base)
     if not available:
-        log("· managed evaluators: unstable evaluator API not present (older self-hosted) "
-            "— create the LLM judges in the UI per DEMO_SCRIPT (skipped)")
+        log("· evaluators: unstable evaluator API not present (older self-hosted) "
+            "— create evaluators in the UI per DEMO_SCRIPT (skipped)")
         return
-    conn_ok, conn_msg = ensure_llm_connection(cfg)
-    log(f"· LLM connection: {conn_msg}")
     auth = (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
     ds_ids = []
     try:
@@ -232,23 +234,42 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
                   if d.get("name") == cfg.certification.dataset.name and d.get("id")]
     except Exception:  # noqa: BLE001
         pass
-    made, notes = 0, []
-    for name in JUDGE_TEMPLATES:
-        judge, err = ensure_judge(cfg, name)
+
+    # 1. code evaluators — no LLM connection required
+    code_made, notes = 0, []
+    for name, source in CODE_EVALUATORS.items():
+        ev, err = ensure_code_evaluator(cfg, name, source)
         if err:
             notes.append(f"{name}: {err[:90]}")
             continue
-        made += 1
+        code_made += 1
+        if ds_ids:
+            _r, rerr = ensure_rule(cfg, ev, ds_ids)
+            if rerr:
+                notes.append(f"{name} rule: {rerr[:90]}")
+    log(f"✓ code evaluators: {code_made}/{len(CODE_EVALUATORS)} created"
+        + (f" (notes: {'; '.join(notes)})" if notes else ""))
+
+    # 2. LLM-as-judge evaluators — need an LLM connection
+    conn_ok, conn_msg = ensure_llm_connection(cfg)
+    log(f"· LLM connection: {conn_msg}")
+    judge_made, jnotes = 0, []
+    for name in JUDGE_TEMPLATES:
+        judge, err = ensure_judge(cfg, name)
+        if err:
+            jnotes.append(f"{name}: {err[:90]}")
+            continue
+        judge_made += 1
         if ds_ids:
             _rule, rerr = ensure_rule(cfg, judge, ds_ids)
             if rerr:
-                notes.append(f"{name} rule: {rerr[:90]}")
-    if made:
-        log(f"✓ managed evaluators: {made}/{len(JUDGE_TEMPLATES)} LLM judges populated"
-            + (f" (notes: {'; '.join(notes)})" if notes else ""))
+                jnotes.append(f"{name} rule: {rerr[:90]}")
+    if judge_made:
+        log(f"✓ LLM judges: {judge_made}/{len(JUDGE_TEMPLATES)} created"
+            + (f" (notes: {'; '.join(jnotes)})" if jnotes else ""))
     else:
-        log("· managed evaluators: not created (" + ("; ".join(notes) or "unknown")
-            + ") — likely no LLM connection in project settings; add one and they run on new runs")
+        log("· LLM judges: not created (" + ("; ".join(jnotes) or "unknown")
+            + ") — add an LLM connection (ANTHROPIC_API_KEY or project settings) and re-run `synth evaluators`")
 
 
 def _golden_scores(rng: Rng, cfg: Config, spec, golden) -> list[dict]:

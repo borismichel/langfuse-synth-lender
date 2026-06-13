@@ -39,6 +39,74 @@ def _auth():
     return (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
 
 
+# Deterministic CODE evaluators (unstable API, type="code") — no LLM connection needed.
+# Each is self-contained Python implementing evaluate(ctx) -> EvaluationResult, mirroring
+# synth.grading so a UI-run evaluator and the seed agree. The runtime injects Score and
+# EvaluationResult; ctx.observation.output is the copilot answer, ctx.experiment.
+# item_expected_output is the dataset item's expected answer.
+CODE_EVALUATORS = {
+    "numeric_accuracy": '''
+def evaluate(ctx):
+    exp = (ctx.experiment.item_expected_output if ctx.experiment else None) or {}
+    out = ctx.observation.output or {}
+    detail, ok = "", True
+    if out.get("answer_type") != exp.get("answer_type"):
+        ok, detail = False, "answer_type %r != %r" % (out.get("answer_type"), exp.get("answer_type"))
+    if ok:
+        for k, v in (exp.get("figures") or {}).items():
+            if (out.get("figures") or {}).get(k) != v:
+                ok, detail = False, "%s = %s != %s" % (k, (out.get("figures") or {}).get(k), v); break
+    if ok:
+        for k, v in (exp.get("ratios") or {}).items():
+            got = (out.get("ratios") or {}).get(k)
+            if got is None or abs(float(got) - float(v)) > 0.02:
+                ok, detail = False, "ratio %s = %s outside +/-0.02 of %s" % (k, got, v); break
+    return EvaluationResult(scores=[Score(name="numeric_accuracy",
+        value="pass" if ok else "fail", data_type="CATEGORICAL",
+        comment=detail or "figures and ratios match")])
+''',
+    "citation_format": '''
+def evaluate(ctx):
+    exp = (ctx.experiment.item_expected_output if ctx.experiment else None) or {}
+    out = ctx.observation.output or {}
+    want, got = set(exp.get("citations") or []), set(out.get("citations") or [])
+    ok = want == got
+    detail = "citations match" if ok else "missing %s; uncited-source %s" % (
+        sorted(want - got), sorted(got - want))
+    return EvaluationResult(scores=[Score(name="citation_format",
+        value="pass" if ok else "fail", data_type="CATEGORICAL", comment=detail)])
+''',
+    "escalation_correctness": '''
+def evaluate(ctx):
+    exp = (ctx.experiment.item_expected_output if ctx.experiment else None) or {}
+    out = ctx.observation.output or {}
+    ok = out.get("answer_type") == exp.get("answer_type")
+    return EvaluationResult(scores=[Score(name="escalation_correctness",
+        value="pass" if ok else "fail", data_type="CATEGORICAL",
+        comment="correctly %s" % exp.get("answer_type") if ok
+                else "answer_type %r != %r" % (out.get("answer_type"), exp.get("answer_type")))])
+''',
+}
+
+
+def ensure_code_evaluator(cfg: Config, name: str, source: str) -> tuple[dict | None, str]:
+    """Create (or reuse) a deterministic code evaluator. No LLM connection required."""
+    base = cfg.target.base_url
+    existing, available = list_judges(base)
+    if not available:
+        return None, "unstable evaluator API not available"
+    match = next((e for e in existing if e.get("name") == name), None)
+    if match:
+        return match, ""
+    body = {"name": name, "type": "code", "sourceCode": source.strip() + "\n",
+            "sourceCodeLanguage": "PYTHON"}
+    resp = requests.post(f"{base.rstrip('/')}/api/public/unstable/evaluators",
+                         json=body, auth=_auth(), timeout=20)
+    if resp.status_code in (200, 201):
+        return resp.json(), ""
+    return None, f"{resp.status_code}: {resp.text[:300]}"
+
+
 def ensure_llm_connection(cfg: Config) -> tuple[bool, str]:
     """Upsert an LLM connection so the managed judges have a model to run on. Uses
     ``ANTHROPIC_API_KEY`` from env (matches the judge_model provider). Returns
@@ -103,32 +171,49 @@ def ensure_judge(cfg: Config, name: str) -> tuple[dict | None, str]:
 
 def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str]) -> tuple[dict | None, str]:
     """Create an evaluation rule scoping ``judge`` to experiment runs on the given
-    datasets. Variable mapping follows the judge templates: {{input}} ← item input,
-    {{output}} ← trace output. Server-side validation errors are surfaced verbatim
-    (the unstable API returns structured recovery guidance)."""
+    datasets (``target=experiment``, filtered by ``datasetId``).
+
+    Body shape verified against the OpenAPI spec / live Cloud API:
+    - ``evaluator`` must carry ``{name, scope, type}`` — ``type`` is ``code`` or
+      ``llm_as_judge`` (omitting it is the 400 ``invalid_body`` we hit before);
+    - **code** evaluators take NO ``mapping`` — they read ``ctx`` directly and the
+      server auto-fills the variable mapping (confirmed: the response echoes a
+      server-generated mapping). Sending a guessed mapping is what was rejected;
+    - **llm_as_judge** evaluators need a ``mapping`` whose ``source`` is one of the
+      bare enum values {input, output, metadata, expected_output,
+      experiment_item_metadata}. Our two judges use only ``{{input}}``/``{{output}}``.
+
+    Server-side validation errors are surfaced verbatim (the unstable API returns
+    structured recovery guidance)."""
     base = cfg.target.base_url
+    etype = judge.get("type") or "llm_as_judge"
     name = f"wb-{judge.get('name')}-experiments"
-    variables = judge.get("variables") or ["input", "output"]
-    mapping = []
-    for var in variables:
-        if var == "input":
-            mapping.append({"variable": "input", "source": "experiment_item_input"})
-        elif var == "output":
-            mapping.append({"variable": "output", "source": "trace_output"})
-        elif var == "expected_output":
-            mapping.append({"variable": "expected_output", "source": "expected_output"})
-        else:
-            mapping.append({"variable": var, "source": "trace_input"})
     body = {
         "name": name,
         "target": "experiment",
         "enabled": True,
-        "evaluator": {"name": judge.get("name"), "scope": judge.get("scope", "project")},
+        "evaluator": {"name": judge.get("name"),
+                      "scope": judge.get("scope", "project"),
+                      "type": etype},
         "sampling": 1,
         "filter": [{"column": "datasetId", "operator": "any of", "value": dataset_ids,
                     "type": "stringOptions"}],
-        "mapping": mapping,
     }
+    if etype != "code":
+        # Map each declared prompt variable to a valid experiment source. Our judges
+        # use input/output only; expected_output/experiment_item_metadata are also
+        # valid for target=experiment if a future judge declares them.
+        _src = {
+            "input": "input",
+            "output": "output",
+            "metadata": "metadata",
+            "expected_output": "expected_output",
+            "experimentItemExpectedOutput": "expected_output",
+            "experimentItemMetadata": "experiment_item_metadata",
+        }
+        variables = judge.get("variables") or ["input", "output"]
+        body["mapping"] = [{"variable": var, "source": _src.get(var, "input")}
+                           for var in variables]
     resp = requests.post(f"{base.rstrip('/')}/api/public/unstable/evaluation-rules",
                          json=body, auth=_auth(), timeout=20)
     if resp.status_code in (200, 201):

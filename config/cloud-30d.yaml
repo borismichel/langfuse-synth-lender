@@ -1,0 +1,82 @@
+# 30-day Cloud preset: the full self-hosted 30-day WINDOW, density-scaled to fit the
+# Langfuse Cloud free-tier cap. See config/demo.yaml (full, scale 1.0) and
+# config/cloud-demo.yaml (14-day). Probe + plan first; adjust scale to your cap.
+
+target:
+  host: https://cloud.langfuse.com          # overridable via LANGFUSE_BASE_URL (Cloud or self-hosted)
+  # keys via env: LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY
+  project_hint: demo                   # guardrail: refuse to seed unless the project name contains this
+
+generation:
+  seed: 47
+  archetype: filing_copilot
+  window_days: 30
+  tz_offset_hours: 2                   # Europe/Berlin business-hours curve (UTC+2 in summer)
+  volume:                              # sessions-driven; total traces are DERIVED, not forced (~10-12k)
+    scale: 0.4                         # 30-day WINDOW at reduced density → ~40k events,
+                                       # free-tier-safe (~20% under the ~50k cap). Full self-hosted
+                                       # density is scale 1.0 (~99k events; needs paid/uncapped).
+    sessions_per_weekday: [45, 55]
+    sessions_per_weekend_day: [3, 7]
+    turns_median: 7                    # log-normal turns per session ...
+    turns_sigma: 0.7                   # ... p95 ≈ 22
+    turns_max: 30
+  population:
+    users: 48                          # named credit analysts (35-60 band)
+    power_user_share: 0.1              # Zipf-like: a few heavy users, long tail
+  environments:
+    production_share: 0.96             # rest tagged `staging`
+  german_share: 0.2                    # share of German-speaking analysts (German names). Their
+                                       # sessions are FULLY German — never mixes within a user or
+                                       # chat (≈12% of traces). 0 = all English.
+
+models:                                # price per 1k tokens (Anthropic API, May 2026)
+  - { name: claude-sonnet-4-5, role: work,  input_per_1k: 0.003, output_per_1k: 0.015 }   # incumbent (production)
+  - { name: claude-sonnet-4-6, role: work2, input_per_1k: 0.003, output_per_1k: 0.015 }   # candidate A (experiments only)
+  - { name: claude-haiku-4-5,  role: light, input_per_1k: 0.001, output_per_1k: 0.005 }   # candidate B (experiments only)
+
+certification:                         # the flagship narrative (spec v2 §2, §5)
+  enabled: true
+  prompt_name: analyst-copilot
+  n_prompt_versions: 8                 # history over the window; production=v7, staging=v8
+  prompt_transition_day_offset: -12    # mid-window v5 -> v6 transition (supports the quality-dip ambience)
+  prompt_fix_day_offset: -8            # v6 -> v7 "fix" version
+  incumbent_model: claude-sonnet-4-5   # production traffic
+  candidate_a_model: claude-sonnet-4-6 # passes, slightly better groundedness, lower cost
+  candidate_b_model: claude-haiku-4-5  # FAILS the numeric-accuracy threshold (the real decision on screen)
+  judge_model: claude-sonnet-4-6       # what the seeded judge scores claim to come from (visible in configs)
+  baseline_run_day_offset: -6          # baseline certification of the production release
+  candidate_run_day_offset: -1         # candidates A and B ran yesterday
+  n_flagged_reserved: 1                # one fresh thumbs-down kept un-promoted (live intake beat)
+  dataset:
+    name: certification-suite          # ONE suite; items tagged by scenario type
+    scenarios:                         # n items + per-scenario gate on the deterministic check
+      summary:        { n_items: 14, gate: 0.90 }
+      numeric_lookup: { n_items: 22, gate: 0.95 }
+      trend:          { n_items: 10, gate: 0.90 }
+      covenant:       { n_items: 14, gate: 0.95 }
+      out_of_scope:   { n_items: 12, gate: 1.00 }
+  queue:
+    name: certification-review         # one queue, alive: completed history + pending items
+    n_completed: 16
+    n_pending: 14
+
+ambience:
+  quality_dip:                         # §8: mild groundedness dip after the v6 prompt, recovers at v7
+    enabled: true
+    dip: 0.06                          # subtle — no alarm-red theatrics
+  error_rate: 0.02                     # 1-3% of traces carry a tool error with a retry span
+  nightly_batch:                       # second scenario line, ambience only (never demoed)
+    enabled: true
+    traces_per_night: 2
+    tag: batch:covenant-monitor
+
+scoring:                               # every score-method type appears on the same scores surface
+  citation_format_coverage: 1.0        # deterministic: citation-format check on every answer
+  numeric_check_ratio: 0.35            # deterministic: numeric-accuracy assertion on numeric questions
+  groundedness_judge_ratio: 0.12       # LLM judge on sampled production traces
+  citation_judge_ratio: 0.12           # LLM judge: citation coverage
+  escalation_check_coverage: 1.0       # deterministic: escalation-correctness on escalated/out-of-scope turns
+  feedback_response_ratio: 0.11        # analyst thumbs (sparse, 8-15%)
+  feedback_down_rate: 0.05
+  judge_human_agreement: 0.88          # queue-completed traces: judge ≈ human, visible disagreements

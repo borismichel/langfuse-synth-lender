@@ -1,7 +1,6 @@
 """Langfuse demo-data synthesiser — regulated-lender model-certification scenario.
 
-See the spec (``langfuse-demo-synth-spec.md``) and ``README.md``. The package is
-organised as:
+See ``README.md`` for the overview. The package is organised as:
 
 - ``config``        — typed load of ``config/demo.yaml``
 - ``rng``           — single-seed deterministic RNG + W3C-format ID derivation

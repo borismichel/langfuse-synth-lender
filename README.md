@@ -10,9 +10,7 @@ ground truth → comparative experiment runs → one evidence trail.
 > experiment runs (baseline passes · candidate A passes better/cheaper · **candidate B
 > fails the numeric-accuracy gate**) → all five score-method types on one surface.
 
-The spec of record is [`langfuse-demo-synth-spec-v2.md`](langfuse-demo-synth-spec-v2.md)
-(v1 retained as design history). The companion `ev` kit tells the prompt-loop story;
-this kit tells the certification story.
+The companion `ev` kit tells the prompt-loop story; this kit tells the certification story.
 
 ---
 
@@ -89,15 +87,9 @@ synth submit | playground                        # live copilot + /dossier + /wo
 The **Validation Workbench** (`synth playground` → `/workbench`, see
 [`WORKBENCH.md`](WORKBENCH.md)) is the branded governance layer on the same APIs:
 spec designer, evaluator code injection, runs/results/compare, requirement coverage,
-promote-from-queue, sign-off + evidence packs. [`CHECKLIST.md`](CHECKLIST.md) maps
-requirements → features → demo beats.
+promote-from-queue, sign-off + evidence packs.
 
 ## Architecture notes
-
-> **Targeting Cloud vs self-hosted** is documented in [`CONFIGURATIONS.md`](CONFIGURATIONS.md):
-> the URL-derived `TargetProfile`, the capability-probed evaluator path, the optional
-> `ANTHROPIC_API_KEY`, the ordering invariant, and the homogeneous score model. Cloud is
-> the best-practice/primary path; read it before cloning the generator.
 
 Backdated **batch ingestion** (`/api/public/ingestion`, ingestion-version-4 header) —
 the OTel SDK can't backfill; two-phase recoverable seeding (NDJSON spool → chunked

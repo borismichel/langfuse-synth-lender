@@ -28,3 +28,11 @@ venv/
 # local-only Langfuse bug-report draft (not part of the kit)
 ISSUE_experiment_scores.md
 DEMO_WALKTHROUGH.html
+
+# build/session artifacts — kept locally, not part of the kit
+CHECKLIST.md
+CONFIGURATIONS.md
+SLIDES_FIT.md
+langfuse-demo-synth-spec.md
+langfuse-demo-synth-spec-v2.md
+mrm-demo-session-summary.html

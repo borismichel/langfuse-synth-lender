@@ -15,9 +15,8 @@ its own scattered ``"cloud.langfuse.com" in url`` checks:
    than match the URL because a newer self-hosted host should still take the API path.
    When absent, evaluator/judge/rule creation degrades to logged UI instructions.
 
-Best practice (and the path this kit is tuned for) is **Langfuse Cloud**. See
-``CONFIGURATIONS.md`` for the full Cloud-vs-self-hosted matrix and the homogeneous score
-model that both paths produce.
+Best practice (and the path this kit is tuned for) is **Langfuse Cloud**; older
+self-hosted (no unstable evaluator API) degrades gracefully to UI instructions.
 """
 from __future__ import annotations
 

@@ -99,10 +99,99 @@ def seed_experiment_runs(cfg, lf, cert, log: Callable[[str], None] = print) -> i
             task=_seed_task(run, error_map),
             evaluators=_run_evaluators(run))
         lf.flush()
+        n_rl = seed_run_level_scores(cfg, run, log)
         rates = run_pass_rates(run)
         log(f"  · experiment run {run.run_name!r}: {len(run.items)} items "
-            f"(numeric_lookup {rates.get('numeric_lookup', 1):.0%}, verdict {run.verdict})")
+            f"(numeric_lookup {rates.get('numeric_lookup', 1):.0%}, verdict {run.verdict}, "
+            f"{n_rl} run-level scores)")
     return len(cert.runs)
+
+
+def run_level_metrics(run: CertRunPlan) -> dict[str, float]:
+    """Per-run AGGREGATE metrics, computed from the same grade() the per-item evaluators
+    use — so the rollup can never disagree with the item cells. These are written as
+    dataset-run-level scores (``datasetRunId``-linked) and render in the Experiments
+    overview's "Experiment-Level Scores" column. Why we need them: the per-item scores
+    aggregate columns in the comparison view are flaky on newer Langfuse (the "faster
+    experiments" preview only surfaces a subset of identically-shaped item scores), so
+    the headline deltas (groundedness 0.90/0.94/0.86, candidate B's numeric-accuracy
+    miss) must live as explicit run-level scores to land in the narrative reliably."""
+    from statistics import mean
+
+    mu = run.groundedness_mu
+    fig, cit, esc, gnd, cov = [], [], [], [], []
+    for ri in run.items:
+        checks = grade(ri.item.expected, ri.got)
+        fig.append(1.0 if checks["figure_accuracy"][0] else 0.0)
+        cit.append(1.0 if checks["citation_accuracy"][0] else 0.0)
+        esc.append(1.0 if checks["abstention_correct"][0] else 0.0)
+        ok = checks["grounded_ok"][0] and checks["figure_accuracy"][0]
+        gnd.append(mu if ok else 0.45)
+        cov.append(0.94 if checks["citation_accuracy"][0] else 0.4)
+    return {
+        "numeric_accuracy_rate": round(mean(fig), 3) if fig else 0.0,
+        "citation_format_rate": round(mean(cit), 3) if cit else 0.0,
+        "escalation_correctness_rate": round(mean(esc), 3) if esc else 0.0,
+        "groundedness_mean": round(mean(gnd), 3) if gnd else 0.0,
+        "citation_coverage_mean": round(mean(cov), 3) if cov else 0.0,
+    }
+
+
+def _run_level_score_id(run_id: str, name: str) -> str:
+    """Deterministic UUID-shaped id so re-seeding upserts the run-level score in place."""
+    import hashlib
+
+    h = hashlib.blake2b(f"runlevel|{run_id}|{name}".encode(), digest_size=16).hexdigest()
+    return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+
+
+def _resolve_run_id(cfg, run: CertRunPlan) -> str | None:
+    """The SDK appends a ` - <timestamp>` suffix to the run name, so resolve the created
+    run's id by name PREFIX (the runs-list endpoint is eventually consistent on Cloud —
+    retry until it appears)."""
+    import time
+
+    base = cfg.target.base_url.rstrip("/")
+    for _ in range(8):
+        resp = requests.get(f"{base}/api/public/datasets/{cfg.certification.dataset.name}/runs",
+                            params={"limit": 50}, auth=_auth(), timeout=20)
+        if resp.status_code == 200:
+            for r in resp.json().get("data", []):
+                if (r.get("name") or "").startswith(run.run_name):
+                    return r.get("id")
+        time.sleep(4)
+    return None
+
+
+def seed_run_level_scores(cfg, run: CertRunPlan, log: Callable[[str], None] = print) -> int:
+    """Write the per-run aggregate metrics as dataset-run-level scores via
+    ``POST /api/public/scores`` (the score-create that accepts ``datasetRunId``; the
+    batch-ingestion path silently drops run-level scores, and ``POST /v2/scores`` is
+    405 — this REST route is the one that persists them). Idempotent on re-seed.
+    Best-effort: a missing run id / older server is logged, never fatal."""
+    import time
+
+    run_id = _resolve_run_id(cfg, run)
+    if not run_id:
+        log(f"  · run-level scores: run id for {run.run_name!r} not found yet — skipped")
+        return 0
+    base = cfg.target.base_url.rstrip("/")
+    delay = throttle_seconds(base)
+    made = 0
+    rows = [(k, float(v), "NUMERIC", f"run-level aggregate over {len(run.items)} items")
+            for k, v in run_level_metrics(run).items()]
+    rows.append(("verdict", run.verdict, "CATEGORICAL", "certification gate verdict"))
+    for name, value, dtype, comment in rows:
+        body = {"id": _run_level_score_id(run_id, name), "datasetRunId": run_id,
+                "name": name, "value": value, "dataType": dtype, "comment": comment}
+        resp = _post_retry(f"{base}/api/public/scores", body, _auth())
+        if resp is not None and resp.status_code == 200:
+            made += 1
+        elif resp is not None:
+            log(f"  · run-level score {name!r}: {resp.status_code} {resp.text[:100]}")
+        if delay:
+            time.sleep(delay)
+    return made
 
 
 def run_pass_rates(run: CertRunPlan) -> dict[str, float]:

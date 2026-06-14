@@ -24,3 +24,6 @@ venv/
 
 # OS
 .DS_Store
+
+# local-only Langfuse bug-report draft (not part of the kit)
+ISSUE_experiment_scores.md

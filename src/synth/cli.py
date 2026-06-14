@@ -56,8 +56,8 @@ def seed(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
     cfg = _load(config)
     state = run_seed(cfg, dry_run=dry_run, spool_path=spool, do_import=not no_import,
                      log=lambda m: typer.echo(m))
-    out = render_script(cfg, state)
-    typer.echo(f"✓ DEMO_SCRIPT.md written -> {out}")
+    render_script(cfg, state)
+    typer.echo("✓ DEMO_SCRIPT.md · DEMO_MAP.md · DEMO_WALKTHROUGH.html written")
 
 
 @app.command(name="import-spool")
@@ -163,15 +163,16 @@ def memo(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c")):
 
 @app.command()
 def script(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c")):
-    """(Re)generate DEMO_SCRIPT.md from the current run state."""
+    """(Re)generate the demo docs from run state: DEMO_SCRIPT.md (presenter runbook),
+    DEMO_MAP.md (checklist → UI path), and DEMO_WALKTHROUGH.html (branded walkthrough)."""
     from .script import render_script
 
     cfg = _load(config)
     if not RunState.exists():
         typer.echo("No .synth_state.json — run `synth seed` first.", err=True)
         raise typer.Exit(code=2)
-    out = render_script(cfg, RunState.load())
-    typer.echo(f"✓ DEMO_SCRIPT.md written -> {out}")
+    render_script(cfg, RunState.load())
+    typer.echo("✓ DEMO_SCRIPT.md · DEMO_MAP.md · DEMO_WALKTHROUGH.html written")
 
 
 @app.command()

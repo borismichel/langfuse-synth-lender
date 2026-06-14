@@ -16,8 +16,10 @@ from .state import REPO_ROOT, RunState
 
 SCRIPT_TEMPLATE = REPO_ROOT / "templates" / "demo_script.md.j2"
 MAP_TEMPLATE = REPO_ROOT / "templates" / "demo_map.md.j2"
+WALKTHROUGH_TEMPLATE = REPO_ROOT / "templates" / "demo_walkthrough.html.j2"
 SCRIPT_OUT = REPO_ROOT / "DEMO_SCRIPT.md"
 MAP_OUT = REPO_ROOT / "DEMO_MAP.md"
+WALKTHROUGH_OUT = REPO_ROOT / "DEMO_WALKTHROUGH.html"
 
 # The managed judges, created once in the UI (or via the workbench's unstable-API
 # path). They grade prose; the deterministic assertions grade the verdicts.
@@ -58,6 +60,15 @@ def _ui(state: RunState, suffix: str) -> str:
     return f"{state.base_url}/project/{state.project_id}/{suffix}"
 
 
+def _html_link(state: RunState, suffix: str, label: str) -> str:
+    """An HTML anchor into the project (for the HTML walkthrough), or plain text when
+    the project isn't resolved (dry-run). Returned raw — the HTML template is not
+    autoescaped."""
+    if not state.project_id:
+        return label
+    return f'<a href="{state.base_url}/project/{state.project_id}/{suffix}">{label}</a>'
+
+
 def build_context(cfg: Config, state: RunState) -> dict:
     suite = state.suite
     runs = suite.get("runs") or {}
@@ -81,6 +92,7 @@ def build_context(cfg: Config, state: RunState) -> dict:
         "gates": suite.get("gates") or {},
         "scenarios": suite.get("scenarios") or {},
         "ui": lambda suffix: _ui(state, suffix),
+        "htmllink": lambda suffix, label: _html_link(state, suffix, label),
         "traces_link": _deep_link(state, "traces"),
         "sessions_link": _deep_link(state, "sessions"),
         "datasets_link": _deep_link(state, "datasets"),
@@ -96,4 +108,6 @@ def render_script(cfg: Config, state: RunState, *, out_path: Path = SCRIPT_OUT) 
     ctx = build_context(cfg, state)
     out_path.write_text(Template(SCRIPT_TEMPLATE.read_text()).render(**ctx))
     MAP_OUT.write_text(Template(MAP_TEMPLATE.read_text()).render(**ctx))
+    # The branded HTML walkthrough — same context, so it can never drift from the MD.
+    WALKTHROUGH_OUT.write_text(Template(WALKTHROUGH_TEMPLATE.read_text()).render(**ctx))
     return out_path

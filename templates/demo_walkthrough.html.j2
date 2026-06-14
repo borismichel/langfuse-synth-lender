@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo Walkthrough — LLM Certification for a Lending Copilot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --surface-bg:#f6f6f3; --surface-1:#edede8; --surface-2:#e5e5e1; --surface-beige:#f1ede1;
+    --cta-primary:#fbff81; --active-tint:#fbffd6;
+    --text-primary:#222220; --text-secondary:#3d3d38; --text-tertiary:#6b6b66; --text-disabled:#a7a7a0;
+    --text-links:#4f39f6; --success:#538a2e; --error:#cc3314;
+    --line-structure:#cfcfc9; --line-divider-dash:#bebeb6; --line-cta:#404039;
+    --font-sans:"Inter",ui-sans-serif,system-ui,sans-serif;
+    --font-display:"Space Grotesk","Inter",sans-serif;
+    --font-mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--surface-1);color:var(--text-primary);font-family:var(--font-sans);
+    line-height:1.58;-webkit-font-smoothing:antialiased;margin:0;padding:52px 20px 90px}
+  .wrap{max-width:860px;margin:0 auto}
+  .eyebrow{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.14em;
+    color:var(--text-tertiary);margin-bottom:14px}
+  h1{font-family:var(--font-display);font-weight:700;font-size:34px;letter-spacing:-.02em;line-height:1.08;margin:0}
+  .sub{color:var(--text-tertiary);font-size:14px;margin:12px 0 4px}
+  code{font-family:var(--font-mono);font-size:.86em;background:var(--surface-2);
+    border:1px solid var(--line-structure);border-radius:5px;padding:.06em .34em;color:var(--text-secondary);word-break:break-word}
+  a{color:var(--text-links);text-decoration:none} a:hover{text-decoration:underline}
+  hr{border:none;border-top:1px dashed var(--line-divider-dash);margin:38px 0}
+  .section-label{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-tertiary);margin:0 0 16px}
+  .card{background:var(--surface-bg);border:1px solid var(--line-structure);border-radius:var(--radius);padding:22px 24px;margin:0 0 16px}
+  .preflight dl{display:grid;grid-template-columns:140px 1fr;gap:10px 18px;margin:0}
+  .preflight dt{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);padding-top:2px}
+  .preflight dd{margin:0;font-size:14px;color:var(--text-secondary)}
+  .pill{display:inline-block;font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:999px;border:1px solid var(--line-structure);background:var(--surface-1);color:var(--text-tertiary);vertical-align:middle}
+  .pill.fail{color:var(--error);border-color:#e0b3a9;background:#fbeeea}
+  .note{font-size:12.5px;color:var(--text-tertiary);line-height:1.5;margin-top:16px;border-top:1px solid var(--line-structure);padding-top:14px}
+  .row{display:flex;gap:18px;margin:0 0 14px}
+  .badge{flex:0 0 auto;width:38px;height:38px;border-radius:9px;background:var(--cta-primary);color:#222220;font-family:var(--font-display);font-weight:700;font-size:17px;display:flex;align-items:center;justify-content:center;border:1px solid var(--line-cta)}
+  .row .body{flex:1 1 auto;background:var(--surface-bg);border:1px solid var(--line-structure);border-radius:var(--radius);padding:18px 22px}
+  .row h3{font-family:var(--font-display);font-weight:700;font-size:19px;letter-spacing:-.01em;margin:0 0 4px}
+  .row h3 .ctx{font-family:var(--font-mono);font-size:11px;font-weight:500;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:6px}
+  .row p{margin:8px 0;font-size:14.5px;color:var(--text-secondary)}
+  ul{margin:8px 0;padding-left:20px} li{font-size:14.5px;color:var(--text-secondary);margin:4px 0}
+  .say{margin:12px 0 2px;padding:11px 16px;background:var(--active-tint);border-left:3px solid var(--line-cta);border-radius:0 8px 8px 0;font-family:var(--font-display);font-weight:500;font-size:14.5px;color:var(--text-primary)}
+  .say::before{content:"\201C";color:var(--text-tertiary)} .say::after{content:"\201D";color:var(--text-tertiary)}
+  .landing{background:var(--text-primary);color:#f3f3ee;border-radius:var(--radius);padding:22px 26px;margin:8px 0 0}
+  .landing .say{background:transparent;border-left-color:var(--cta-primary);color:#f3f3ee;font-size:16px;padding:0 0 0 16px}
+  .landing .say::before,.landing .say::after{color:#8f8f88}
+  .mini{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .mini .card h4{margin:0 0 8px;font-family:var(--font-display);font-size:15px}
+  @media (max-width:640px){.preflight dl{grid-template-columns:1fr}.mini{grid-template-columns:1fr}.row{gap:12px}}
+  @media print{body{background:#fff;padding:0}.row .body,.card{break-inside:avoid}}
+  footer{margin-top:34px;font-size:12px;color:var(--text-tertiary);font-family:var(--font-mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Meridian Commercial Bank · Model-Risk Certification</div>
+  <h1>Demo Walkthrough<br>LLM certification for a lending copilot</h1>
+  <p class="sub">Build a certification suite once from production traces with human-validated ground truth,
+  then certify any new model — prompt + parameters + model — with one command. Five governance requirements, each two clicks deep.</p>
+
+  <hr>
+
+  <p class="section-label">Pre-flight · every anchor below is this run's real data</p>
+  <div class="card preflight">
+    <dl>
+      <dt>Target</dt><dd>{{ base_url }} · project <code>{{ project_name }}</code></dd>
+      <dt>Seeded</dt><dd>{{ '{:,}'.format(summary.total_traces) }} traces in {{ summary.sessions }} sessions over {{ window_days }} days (~{{ summary.by_language.get('de', 0) }} German · {{ summary.golden_traces }} golden · {{ summary.nightly_batch_traces }} nightly-batch ambience) · ~{{ '{:,}'.format(summary.estimated_events) }} events, plus {{ summary.experiment_runs }} experiment runs ({{ summary.experiment_run_items }} items)</dd>
+      <dt>Prompt</dt><dd><code>{{ prompt_name }}</code> — {{ prompt_versions.latest }} versions; <code>production</code> = v{{ prompt_versions.production }}, <code>staging</code> = v{{ prompt_versions.staging }}; generations link to the version live at their timestamp</dd>
+      <dt>Suite</dt><dd><code>{{ suite_info.name }}</code> — {{ suite_info["items"] }} items ({% for s, n in scenarios.items() %}{{ s }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %})</dd>
+      <dt>Runs</dt><dd><code>{{ baseline.name }}</code> · <code>{{ cand_a.name }}</code> · <code>{{ cand_b.name }}</code> — <span class="pill fail">candidate B fails numeric accuracy {{ '%.1f%%'|format((cand_b.pass_rates or {}).get('numeric_lookup', 0)*100) }} vs ≥{{ '%.0f%%'|format(gates.get('numeric_lookup', 0.95)*100) }}</span></dd>
+      <dt>Queue</dt><dd><code>{{ queue.name }}</code> — {{ queue.completed }} completed, {{ queue.pending }} pending (alive)</dd>
+    </dl>
+    <p class="note">The <strong>Evaluators</strong> page is pre-populated by <code>synth evaluators</code> (seed step 5b):
+    3 code evaluators (<code>numeric_accuracy</code>, <code>citation_format</code>, <code>escalation_correctness</code> — no LLM connection)
+    + 2 LLM judges (<code>groundedness</code>, <code>citation_coverage</code>, against the project's Anthropic connection).
+    Code evaluators + judges are scoped to the suite via <code>target=experiment</code> rules (sampling 1.0); the
+    <strong>same judges</strong> are also scoped to live traces (<code>target=observation</code>, low sampling, <strong>default PAUSED</strong>) —
+    certification + continuous monitoring on one surface. Rules never backfill, so the seeded runs/traces show deterministic
+    scores and <strong>no live judge runs</strong> were triggered; seeding made <strong>zero</strong> model calls.</p>
+  </div>
+
+  <hr>
+
+  <p class="section-label">The walk · five checklist rows</p>
+
+  <div class="row">
+    <div class="badge">1</div>
+    <div class="body">
+      <h3><span class="ctx">Row 1 · AI Act Art. 12 — record-keeping</span>Full capture &amp; retention</h3>
+      <p>Open {{ htmllink('traces','traces') }}: {{ window_days }} days of <code>copilot-turn</code> traces, Berlin business-hours rhythm
+      (lunch dip, quiet Fridays, a tagged nightly batch at 03:00). Open {{ htmllink('sessions','sessions') }}: multi-turn analyst
+      chats (median ~7 turns, the occasional 25-turn deep-dive). Open any trace:
+      <code>filings_search</code> → <code>document_fetch</code> → <code>table_extract</code> → the generation
+      (linked to its exact prompt version) — full metadata: release/git_sha, filing-type, desk, language.</p>
+      <p class="say">Every interaction, retained and queryable — and it's ClickHouse underneath.</p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="badge">2</div>
+    <div class="body">
+      <h3><span class="ctx">Row 2 · Validation data reflects real use</span>Ground truth from real traffic</h3>
+      <p>Open dataset {{ htmllink('datasets', suite_info.name) }}: {{ suite_info["items"] }} items tagged by scenario; curated items carry
+      <code>sourceTraceId</code> into real production traces. Open the queue {{ htmllink('annotation-queues', queue.name) }}:
+      {{ queue.completed }} completed human reviews, {{ queue.pending }} pending — including
+      <code>{{ flagged.trace_id }}</code> ({{ flagged.borrower }}: copilot said €{{ '{:,}'.format(flagged.incumbent_figure_eur) }},
+      filing prints €{{ '{:,}'.format(flagged.correct_figure_eur) }}; the analyst's words are on the trace).
+      <strong>Live beat:</strong> complete that review and promote it into the suite (workbench → promote, or UI).</p>
+      <p class="say">The suite is what production actually got asked, with a named human behind every expected answer.</p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="badge">3</div>
+    <div class="body">
+      <h3><span class="ctx">Row 3 · Automated evaluation</span>Three instruments, one wrong answer</h3>
+      <p>Open the golden trace <strong>numeric hallucination</strong> (<code>{{ golden_map.numeric_hallucination.trace_id }}</code>):
+      the answer misstates the figure vs. the filing table — <code>numeric_accuracy = fail</code> with the arithmetic in
+      the comment, judge <code>groundedness</code> 0.41, and the human annotation scoring the same criteria
+      (<code>numeric_accuracy = fail</code>, comment carrying the corrected value). Three independent instruments, one
+      wrong answer. Contrast with <strong>citation gap</strong> (<code>{{ golden_map.citation_gap.trace_id }}</code>):
+      fluent answer, <code>groundedness</code> fine, <code>citation_coverage</code> 0.32 — the judge catches what a skim would not.</p>
+      <p class="say">Deterministic assertions where arithmetic decides; judges where prose does; humans where it matters.</p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="badge">4</div>
+    <div class="body">
+      <h3><span class="ctx">Row 4 · Comparative certification — the heart</span>Effective challenge, on screen</h3>
+      <p>Open <code>{{ suite_info.name }}</code> → <strong>Experiments</strong>: three runs on the same suite, same expected outputs.</p>
+      <ul>
+        <li><code>{{ baseline.name }}</code> — production release, passes every gate</li>
+        <li><code>{{ cand_a.name }}</code> — passes, groundedness ↑ (~0.94 vs ~0.90), cost ↓</li>
+        <li><code>{{ cand_b.name }}</code> — <span class="pill fail">numeric_lookup {{ '%.1f%%'|format((cand_b.pass_rates or {}).get('numeric_lookup', 0)*100) }} vs ≥{{ '%.0f%%'|format(gates.get('numeric_lookup', 0.95)*100) }} → REJECTED</span></li>
+      </ul>
+      <p>The headline deltas live in the <strong>Experiment-Level Scores</strong> column (per-run aggregates written as
+      <code>datasetRunId</code>-linked scores): <code>groundedness_mean</code>, <code>numeric_accuracy_rate</code>,
+      <code>verdict</code>. Read across the rows — candidate B's <code>numeric_accuracy_rate</code> and
+      <code>groundedness_mean</code> are visibly lowest. <em>(The per-item score columns under
+      <strong>Columns → Scores</strong> can be flaky on the "faster experiments" preview — only a subset surfaces — so
+      lean on the Experiment-Level Scores column for the comparison.)</em></p>
+      <p>Drill into one of candidate B's red items: the <code>numeric_accuracy</code> comment states exactly which figure
+      diverged from the printed table. A real decision, on screen: ship A, reject B.</p>
+      <p class="say">Certification of any change — model, prompt, parameters — is an experiment run, not a six-week project.</p>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="badge">5</div>
+    <div class="body">
+      <h3><span class="ctx">Row 5 · One evidence trail</span>Every score method, one surface</h3>
+      <p>Open {{ htmllink('scores','scores') }} and filter: <code>numeric_accuracy</code> (deterministic),
+      <code>groundedness</code> / <code>citation_coverage</code> (judge + human — the review queue binds the SAME criteria
+      configs, so annotators score the certification scales to create ground truth; human entries carry the 'human
+      annotation' comment), <code>analyst_feedback</code> (user) — one surface, co-filterable across production traces AND
+      experiment runs. On queue-completed traces, judge and human sit side by side (~88% agreement, visible disagreements
+      — that's realism, not noise).</p>
+      <p class="say">Human, judge, deterministic, and user feedback — one scores surface, one audit trail.</p>
+    </div>
+  </div>
+
+  <div class="landing">
+    <p class="say">Production feeds the ground truth; ground truth feeds the experiments; experiments certify the
+    release — prompt + parameters + model. Monitoring keeps watching, and any change re-enters the same pipeline.
+    That used to be manual and slow; you just watched it.</p>
+  </div>
+
+  <hr>
+
+  <p class="section-label">Optional beats</p>
+  <div class="card">
+    <ul>
+      <li><strong>Golden showpieces:</strong> <code>{{ golden_map.covenant_summary.trace_id }}</code> (multi-filing covenant
+      summary), <code>{{ golden_map.dscr_trend.trace_id }}</code> (DSCR trend — per-filing <code>table_extract</code> spans),
+      <code>{{ golden_map.correct_escalation.trace_id }}</code> (escalation event + correctness score). All findable via tag <code>golden</code>.</li>
+      <li><strong>Prompt history:</strong> {{ prompt_versions.latest }} versions with commit messages; the
+      v{{ prompt_versions.production - 1 }} era shows a mild groundedness dip that the v{{ prompt_versions.production }} "fix"
+      recovers — monitoring → re-certification, if a stakeholder pulls the thread.</li>
+      <li><strong>Live certification:</strong> <code>synth certify --model {{ candidate_a_model }} --gate</code> runs the same
+      pipeline with real model calls; the Validation Workbench (<code>synth playground</code> → /workbench) is the branded
+      governance layer on the same APIs.</li>
+    </ul>
+  </div>
+
+  <div class="mini">
+    <div class="card">
+      <h4>Break-glass</h4>
+      <p style="margin:0;font-size:13.5px;color:var(--text-secondary)">No model access at the venue? The seeded record
+      <strong>is</strong> the demo — all five rows work without a single live call. <code>synth certify --offline</code>
+      proves suite self-consistency on screen. <code>synth verify</code> asserts every anchor above before you go on stage;
+      <code>synth probe</code> validates backdated ingestion on a new host before bulk seeding.</p>
+    </div>
+    <div class="card">
+      <h4>Reset</h4>
+      <p style="margin:0;font-size:13.5px;color:var(--text-secondary)">Teardown is project-level: fresh project, keys in
+      <code>.env</code>, <code>synth seed</code> (deterministic — identical ids). On Cloud free tier use
+      <code>--config config/cloud-demo.yaml</code> and check current event caps first.</p>
+    </div>
+  </div>
+
+  <footer>Generated from run state by <code>synth script</code> · companions: DEMO_SCRIPT.md · DEMO_MAP.md · CONFIGURATIONS.md</footer>
+
+</div>
+</body>
+</html>

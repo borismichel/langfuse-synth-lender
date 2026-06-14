@@ -82,7 +82,7 @@ synth probe                                      # backdated-ingestion check (ru
 synth certify --model <id> [--gate|--offline]    # live certification run (real model calls)
 synth evaluators                                 # populate code evaluators + LLM judges, scope to the suite
 synth enrich                                     # optional ~50-call archetype layer (prose variety)
-synth memo | script                              # CERT_MEMO.md · DEMO_SCRIPT.md + DEMO_MAP.md
+synth memo | script                              # CERT_MEMO.md · DEMO_SCRIPT.md + DEMO_MAP.md + DEMO_WALKTHROUGH.html
 synth submit | playground                        # live copilot + /dossier + /workbench
 ```
 

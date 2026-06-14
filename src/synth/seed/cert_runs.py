@@ -34,12 +34,32 @@ def _run_evaluators(run: CertRunPlan):
     """Code evaluators for one run, in the documented run_experiment shape: a LIST of
     evaluator functions, **each returning a single ``Evaluation``** (a single function
     returning a list is not accepted by the SDK — the run lands with zero items). Same
-    score vocabulary as production; per-run judge means make the comparison deltas
-    visible (baseline ~0.91, candidate A ~0.94, candidate B ~0.88). LLM-as-judge
-    evaluators would slot into this same list identically."""
+    score vocabulary as production. LLM-as-judge evaluators would slot into this list
+    identically.
+
+    The numeric judge scores (groundedness, citation_coverage) get **deterministic
+    per-item variation** — a shared per-item difficulty (some questions are harder for
+    every model) plus small per-run noise — instead of a flat per-run constant. Without
+    it the comparison grid shows an identical value for every item, which reads as fake.
+    The spread is centered on the run's mean, so the run-level ``mean_*`` rollups stay
+    ≈ baseline 0.90 / candidate A 0.94 / candidate B 0.86 and the gate (categorical
+    checks) is unaffected."""
+    import hashlib
+
     from langfuse import Evaluation
 
     mu = run.groundedness_mu
+
+    def _u(*parts: object) -> float:
+        """Deterministic uniform [0,1) from the parts (stable across seeds/hosts)."""
+        s = "|".join(str(p) for p in parts)
+        return int.from_bytes(hashlib.blake2b(s.encode(), digest_size=6).digest(), "big") / (1 << 48)
+
+    def _around(base: float, inp: object, tag: str, spread: float, lo: float, hi: float) -> float:
+        # shared per-item difficulty (same across runs) + smaller per-run noise, centered ~0
+        diff = (_u(inp, "diff", tag) - 0.5) * spread
+        noise = (_u(inp, mu, tag) - 0.5) * (spread * 0.5)
+        return round(min(hi, max(lo, base + diff + noise)), 3)
 
     def _det(check: str, score_name: str):
         def evaluator(*, input, output, expected_output, metadata=None, **kwargs):
@@ -52,11 +72,15 @@ def _run_evaluators(run: CertRunPlan):
     def groundedness(*, input, output, expected_output, metadata=None, **kwargs):
         checks = grade(expected_output, output)
         ok = checks["grounded_ok"][0] and checks["figure_accuracy"][0]
-        return Evaluation(name="groundedness", value=round(mu if ok else 0.45, 3))
+        value = (_around(mu, input, "g", 0.12, 0.6, 0.99) if ok
+                 else round(0.40 + _u(input, mu, "gf") * 0.12, 3))
+        return Evaluation(name="groundedness", value=value)
 
     def citation_coverage(*, input, output, expected_output, metadata=None, **kwargs):
         ok = grade(expected_output, output)["citation_accuracy"][0]
-        return Evaluation(name="citation_coverage", value=round(0.94 if ok else 0.4, 3))
+        value = (_around(0.93, input, "c", 0.10, 0.75, 0.99) if ok
+                 else round(0.30 + _u(input, mu, "cf") * 0.15, 3))
+        return Evaluation(name="citation_coverage", value=value)
 
     return [_det("figure_accuracy", "numeric_accuracy"),
             _det("citation_accuracy", "citation_format"),

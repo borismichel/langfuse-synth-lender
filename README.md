@@ -133,18 +133,21 @@ can never judge the seeded data.
 **Experiment runs (cloud-vs-v3):** the baseline/A/B runs are created via the SDK `run_experiment` path (deterministic, no model calls), NOT the legacy REST `dataset-run-items` endpoint — on Langfuse ≥ v3.185 (incl. Cloud) the Experiments tab only surfaces `run_experiment`-created runs (REST runs exist via API but render an empty comparison grid; older self-hosted v3.179 showed them).
 
 **Run-level (experiment-level) aggregate scores.** Each run also gets per-run summary
-scores written via `POST /api/public/scores` with `datasetRunId` (`groundedness_mean`,
+scores via `run_experiment`'s **`run_evaluators=`** (the SDK-blessed path — docs:
+*Experiments via SDK → Run-level Evaluators*): `groundedness_mean`,
 `numeric_accuracy_rate`, `citation_format_rate`, `escalation_correctness_rate`,
-`citation_coverage_mean`, `verdict`), computed from the same `grade()` as the per-item
-evaluators so the rollup can't disagree with the cells. **Why:** the Experiments
-comparison view's *per-item* score aggregate is unreliable on newer Langfuse — the
-"Faster Langfuse experience (preview)" surfaces only a subset of identically-shaped item
-scores in the column picker (e.g. only `citation_coverage`, hiding the `groundedness` /
+`citation_coverage_mean`, `verdict`. Each run-level evaluator reads `item_results` (the
+item evaluations seeded above), so the rollup can't disagree with the cells, and the
+SDK attaches the result to the **full dataset run**. **Why:** the Experiments comparison
+view's *per-item* score aggregate is unreliable on newer Langfuse — the "Faster Langfuse
+experience (preview)" surfaces only a subset of identically-shaped item scores in the
+column picker (e.g. only `citation_coverage`, hiding the `groundedness` /
 `numeric_accuracy` deltas that carry the story). The run-level scores render in the
 overview's **"Experiment-Level Scores"** column, which is reliable, so the headline
-deltas (B's numeric-accuracy miss; groundedness 0.90 / 0.94 / 0.86) always land. Note:
-run-level scores must go through `POST /api/public/scores` — the batch-ingestion path
-silently drops `datasetRunId`-only scores and `POST /v2/scores` returns 405.
+deltas (B's numeric-accuracy miss; groundedness 0.90 / 0.94 / 0.86) always land. (Aside,
+if attaching run-level scores by hand: use `POST /api/public/scores` with `datasetRunId`
+— the batch-ingestion path silently drops `datasetRunId`-only scores and `POST
+/v2/scores` returns 405.)
 
 Known cosmetics (say it before they ask): prompt-version *creation* timestamps can't
 be backdated (era linkage on generations carries the story); seeded scores show source

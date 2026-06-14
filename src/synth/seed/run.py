@@ -228,8 +228,13 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
         list_judges,
     )
 
+    from ..target import TargetProfile
+
     base = cfg.target.base_url
+    profile = TargetProfile.detect(base)
     _, available = list_judges(base)
+    log(f"· evaluators: target = {profile.label}; unstable evaluator API "
+        f"{'present → creating programmatically' if available else 'absent'}")
     if not available:
         log("· evaluators: unstable evaluator API not present (older self-hosted) "
             "— create evaluators in the UI per DEMO_SCRIPT (skipped)")

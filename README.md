@@ -94,6 +94,11 @@ requirements → features → demo beats.
 
 ## Architecture notes
 
+> **Targeting Cloud vs self-hosted** is documented in [`CONFIGURATIONS.md`](CONFIGURATIONS.md):
+> the URL-derived `TargetProfile`, the capability-probed evaluator path, the optional
+> `ANTHROPIC_API_KEY`, the ordering invariant, and the homogeneous score model. Cloud is
+> the best-practice/primary path; read it before cloning the generator.
+
 Backdated **batch ingestion** (`/api/public/ingestion`, ingestion-version-4 header) —
 the OTel SDK can't backfill; two-phase recoverable seeding (NDJSON spool → chunked
 import; resume with `synth import-spool`); deterministic BLAKE2b ids (re-seeding

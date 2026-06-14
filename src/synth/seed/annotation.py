@@ -20,7 +20,8 @@ def _auth():
 
 
 # Shared patient-retry helper + Cloud-only throttle (Cloud rate-limits per-object writes).
-from .cert_runs import _post_retry, throttle_seconds  # noqa: E402
+from ..target import post_throttle_seconds as throttle_seconds  # noqa: E402
+from .cert_runs import _post_retry  # noqa: E402
 
 
 

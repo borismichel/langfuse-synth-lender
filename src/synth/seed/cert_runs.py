@@ -180,15 +180,10 @@ def run_gate_verdict(cfg, run: CertRunPlan) -> tuple[bool, dict]:
 def _auth():
     return (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
 
-# Per-request throttle on the one-at-a-time REST writes (dataset-run-items, queue
-# items). **Cloud only** — Langfuse Cloud rate-limits these endpoints, so spacing
-# requests keeps a 200+-item seed under the limit instead of relying on backoff to
-# dig out of a 429 storm. Self-hosted has no such limit, so no delay there.
-CLOUD_POST_THROTTLE_S = 0.35
 
-
-def throttle_seconds(base_url: str) -> float:
-    return CLOUD_POST_THROTTLE_S if "cloud.langfuse.com" in (base_url or "") else 0.0
+# Per-request throttle on the one-at-a-time REST writes (dataset-run / queue items) lives
+# in the central target profile (synth.target) — the ONE place that decides
+# target-specific behaviour, so a clone never re-adds scattered URL checks.
 
 
 def _post_retry(url: str, body: dict, auth, *, attempts: int = 8, timeout: int = 30):

@@ -8,8 +8,8 @@ The headline certification metrics are **reproducible code, not an LLM opinion**
 - ``citation_accuracy``  — cited section ids equal the expected set.
 - ``abstention_correct`` — answer_type (factual / declined / abstained) matches.
 
-The managed LLM judges (groundedness_cert, policy_compliance prose review) layer on
-top in the UI; they grade the prose, not the verdict.
+The managed LLM judges (``groundedness``, ``citation_coverage``) layer on top via the
+unstable evaluator API; they grade the prose, not the verdict.
 """
 from __future__ import annotations
 

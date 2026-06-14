@@ -58,11 +58,39 @@ def _request(method: str, url: str, **kw) -> tuple[requests.Response | None, str
 # synth.grading so a UI-run evaluator and the seed agree. The runtime injects Score and
 # EvaluationResult; ctx.observation.output is the copilot answer, ctx.experiment.
 # item_expected_output is the dataset item's expected answer.
+# Shared, self-contained dict coercion prepended to every code evaluator. ``output`` /
+# ``item_expected_output`` arrive as a dict (our run_experiment task) OR as a string —
+# a UI Prompt Experiment yields the model's raw TEXT/JSON-string, so calling ``.get()``
+# on it raises ``'str' object has no attribute 'get'`` (the crash seen on the live deck).
+# ``_d`` parses JSON strings, unwraps a chat-message ``{"role","content"}`` wrapper, and
+# falls back to ``{}`` for free text — so the evaluator scores gracefully instead of
+# crashing. Standard library only (the runtime allows no third-party deps).
+_COERCE = '''
+def _d(x):
+    import json
+    if isinstance(x, str):
+        try:
+            x = json.loads(x)
+        except Exception:
+            return {}
+    if isinstance(x, dict):
+        if "answer_type" not in x and isinstance(x.get("content"), str):
+            try:
+                c = json.loads(x["content"])
+                if isinstance(c, dict):
+                    return c
+            except Exception:
+                pass
+        return x
+    return {}
+'''
+
 CODE_EVALUATORS = {
     "numeric_accuracy": '''
 def evaluate(ctx):
-    exp = (ctx.experiment.item_expected_output if ctx.experiment else None) or {}
-    out = ctx.observation.output or {}
+''' + _COERCE.replace("\n", "\n    ") + '''
+    exp = _d(ctx.experiment.item_expected_output if ctx.experiment else None)
+    out = _d(ctx.observation.output)
     detail, ok = "", True
     if out.get("answer_type") != exp.get("answer_type"):
         ok, detail = False, "answer_type %r != %r" % (out.get("answer_type"), exp.get("answer_type"))
@@ -81,8 +109,9 @@ def evaluate(ctx):
 ''',
     "citation_format": '''
 def evaluate(ctx):
-    exp = (ctx.experiment.item_expected_output if ctx.experiment else None) or {}
-    out = ctx.observation.output or {}
+''' + _COERCE.replace("\n", "\n    ") + '''
+    exp = _d(ctx.experiment.item_expected_output if ctx.experiment else None)
+    out = _d(ctx.observation.output)
     want, got = set(exp.get("citations") or []), set(out.get("citations") or [])
     ok = want == got
     detail = "citations match" if ok else "missing %s; uncited-source %s" % (
@@ -92,8 +121,9 @@ def evaluate(ctx):
 ''',
     "escalation_correctness": '''
 def evaluate(ctx):
-    exp = (ctx.experiment.item_expected_output if ctx.experiment else None) or {}
-    out = ctx.observation.output or {}
+''' + _COERCE.replace("\n", "\n    ") + '''
+    exp = _d(ctx.experiment.item_expected_output if ctx.experiment else None)
+    out = _d(ctx.observation.output)
     ok = out.get("answer_type") == exp.get("answer_type")
     return EvaluationResult(scores=[Score(name="escalation_correctness",
         value="pass" if ok else "fail", data_type="CATEGORICAL",
@@ -104,15 +134,29 @@ def evaluate(ctx):
 
 
 def ensure_code_evaluator(cfg: Config, name: str, source: str) -> tuple[dict | None, str]:
-    """Create (or reuse) a deterministic code evaluator. No LLM connection required."""
+    """Create (or reuse) a deterministic code evaluator. No LLM connection required.
+
+    Update-aware: if an evaluator of this name exists but its ``sourceCode`` differs from
+    ``source``, POST again — the unstable API creates the NEXT version and auto-migrates
+    existing evaluation rules to it. So re-running ``synth evaluators`` ships code fixes;
+    identical source is a no-op (no version churn)."""
     base = cfg.target.base_url
     existing, available = list_judges(base)
     if not available:
         return None, "unstable evaluator API not available"
+    desired = source.strip() + "\n"
     match = next((e for e in existing if e.get("name") == name), None)
     if match:
-        return match, ""
-    body = {"name": name, "type": "code", "sourceCode": source.strip() + "\n",
+        current = match.get("sourceCode") or ""
+        if not current:  # the list endpoint omits sourceCode — fetch the detail
+            det, _e = _request("GET", f"{base.rstrip('/')}/api/public/unstable/evaluators/{match.get('id')}",
+                               auth=_auth())
+            if det is not None and det.status_code == 200:
+                current = det.json().get("sourceCode") or ""
+        if current.strip() == desired.strip():
+            return match, ""  # unchanged — no new version
+        # else fall through to POST a new version (existing rules auto-migrate to it)
+    body = {"name": name, "type": "code", "sourceCode": desired,
             "sourceCodeLanguage": "PYTHON"}
     resp, err = _request("POST", f"{base.rstrip('/')}/api/public/unstable/evaluators",
                          json=body, auth=_auth())

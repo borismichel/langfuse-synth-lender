@@ -218,3 +218,56 @@ def test_evidence_pack_contents(cfg):
     assert "sign flipped" in md                      # failure reasons included
     assert "j.weiss" in md
     assert json.loads(md.split("```json")[1].split("```")[0])  # canonical spec embedded
+
+
+def test_code_evaluators_survive_string_output():
+    """Regression: a UI Prompt Experiment yields a TEXT/JSON-string output, so the
+    code evaluators must coerce before .get() — never raise 'str' object has no
+    attribute 'get'. Compile each source and run it across output shapes."""
+    from dataclasses import dataclass
+    from types import SimpleNamespace
+
+    from synth.workbench.judges import CODE_EVALUATORS
+
+    @dataclass
+    class Score:
+        name: str
+        value: object
+        data_type: str
+        comment: str = None
+        config_id: str = None
+        metadata: dict = None
+
+    @dataclass
+    class EvaluationResult:
+        scores: list
+
+    expected = {"answer_type": "factual", "figures": {"revenue": 100},
+                "ratios": {"dscr": 1.5}, "citations": ["F-1"]}
+    structured_json = ('{"answer_type":"factual","figures":{"revenue":100},'
+                       '"ratios":{"dscr":1.5},"citations":["F-1"]}')
+    outputs = [
+        expected,                                            # run_experiment dict
+        structured_json,                                     # prompt-experiment JSON string
+        {"role": "assistant", "content": structured_json},   # chat wrapper
+        "The revenue was about 100 million.",                # free text
+        None,                                                # missing
+    ]
+    for name, src in CODE_EVALUATORS.items():
+        ns = {"Score": Score, "EvaluationResult": EvaluationResult}
+        exec(compile(src, f"<{name}>", "exec"), ns)
+        for out in outputs:
+            ctx = SimpleNamespace(
+                observation=SimpleNamespace(output=out),
+                experiment=SimpleNamespace(item_expected_output=expected))
+            res = ns["evaluate"](ctx)                         # must not raise
+            assert res.scores and res.scores[0].name == name
+            assert res.scores[0].value in ("pass", "fail")
+        # the three structured shapes all pass; text/None fail gracefully
+        def val(out):
+            ctx = SimpleNamespace(observation=SimpleNamespace(output=out),
+                                  experiment=SimpleNamespace(item_expected_output=expected))
+            return ns["evaluate"](ctx).scores[0].value
+        assert val(expected) == "pass"
+        assert val(structured_json) == "pass"
+        assert val("plain text") == "fail"

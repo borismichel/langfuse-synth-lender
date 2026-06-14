@@ -165,31 +165,27 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
     except Exception as exc:  # noqa: BLE001
         report.add("seeded_runs", False, f"error: {exc}")
 
-    # -- run-level (experiment-level) aggregate scores -----------------------------
-    # The Experiments comparison view's per-item score aggregate is flaky on newer
-    # Langfuse (the "faster experiments" preview surfaces only a subset of identically
-    # shaped item scores). So the headline deltas are ALSO written as dataset-run-level
-    # scores (datasetRunId-linked), which render in the "Experiment-Level Scores"
-    # column. Assert each run carries them AND that candidate B's numeric-accuracy
-    # aggregate is the lowest (the rejection delta must be real at the rollup).
+    # -- run-level (Experiment-Level) aggregate scores -----------------------------
+    # Per-run rollups attached to the dataset run (mean_/rate_ prefixed, clash-free with
+    # the item scores). Assert each run carries them AND candidate B (haiku) has the
+    # lowest rate_numeric_accuracy — the rejection delta must be real at the rollup.
     try:
         ds = _get(base, f"/api/public/datasets/{suite['name']}/runs", {"limit": 50})
         by_rate = {}
         present_ok = True
         for r in ds.get("data", []):
-            rid = r.get("id")
             scores = _get(base, "/api/public/v2/scores",
-                          {"datasetRunId": rid, "limit": 50}).get("data", [])
+                          {"datasetRunId": r.get("id"), "limit": 50}).get("data", [])
             names = {s.get("name") for s in scores}
-            if not {"groundedness_mean", "numeric_accuracy_rate", "verdict"} <= names:
+            if not {"mean_groundedness", "rate_numeric_accuracy", "verdict"} <= names:
                 present_ok = False
             for s in scores:
-                if s.get("name") == "numeric_accuracy_rate":
+                if s.get("name") == "rate_numeric_accuracy":
                     by_rate[r.get("name", "")] = s.get("value")
         worst = min(by_rate.items(), key=lambda kv: kv[1]) if by_rate else ("", None)
-        delta_ok = "haiku" in worst[0]  # candidate B (haiku) must be the lowest
+        delta_ok = "haiku" in worst[0]
         report.add("run_level_scores", present_ok and delta_ok and len(by_rate) >= 3,
-                   f"{len(by_rate)} runs carry run-level aggregates; lowest numeric_accuracy_rate "
+                   f"{len(by_rate)} runs carry run-level aggregates; lowest rate_numeric_accuracy "
                    f"= {worst[1]} on {worst[0][:28]!r} (candidate B expected)")
     except Exception as exc:  # noqa: BLE001
         report.add("run_level_scores", False, f"error: {exc}")

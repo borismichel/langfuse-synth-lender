@@ -137,22 +137,24 @@ can never judge the seeded data.
 
 **Experiment runs (cloud-vs-v3):** the baseline/A/B runs are created via the SDK `run_experiment` path (deterministic, no model calls), NOT the legacy REST `dataset-run-items` endpoint — on Langfuse ≥ v3.185 (incl. Cloud) the Experiments tab only surfaces `run_experiment`-created runs (REST runs exist via API but render an empty comparison grid; older self-hosted v3.179 showed them).
 
-**Run-level (experiment-level) aggregate scores.** Each run also gets per-run summary
-scores via `run_experiment`'s **`run_evaluators=`** (the SDK-blessed path — docs:
-*Experiments via SDK → Run-level Evaluators*): `groundedness_mean`,
-`numeric_accuracy_rate`, `citation_format_rate`, `escalation_correctness_rate`,
-`citation_coverage_mean`, `verdict`. Each run-level evaluator reads `item_results` (the
-item evaluations seeded above), so the rollup can't disagree with the cells, and the
-SDK attaches the result to the **full dataset run**. **Why:** the Experiments comparison
-view's *per-item* score aggregate is unreliable on newer Langfuse — the "Faster Langfuse
-experience (preview)" surfaces only a subset of identically-shaped item scores in the
-column picker (e.g. only `citation_coverage`, hiding the `groundedness` /
-`numeric_accuracy` deltas that carry the story). The run-level scores render in the
-overview's **"Experiment-Level Scores"** column, which is reliable, so the headline
-deltas (B's numeric-accuracy miss; groundedness 0.90 / 0.94 / 0.86) always land. (Aside,
-if attaching run-level scores by hand: use `POST /api/public/scores` with `datasetRunId`
-— the batch-ingestion path silently drops `datasetRunId`-only scores and `POST
-/v2/scores` returns 405.)
+**Two score levels, deliberately distinct.**
+- **Per-item** scores: `run_experiment`'s `evaluators=` attach the five names
+  (`numeric_accuracy`, `citation_format`, `escalation_correctness`, `groundedness`,
+  `citation_coverage`) to each run item. These are the comparison grid's per-item columns
+  — and the code-evaluator/judge rules fill them when triggered (rules don't backfill the
+  seeded runs, so kick them off from the run view; a freshly-triggered run fills
+  automatically).
+- **Per-run** (Experiment-Level) rollups: `run_experiment`'s `run_evaluators=` attach
+  aggregates to the full dataset run, shown in the **Experiment-Level Scores** column.
+  Named with `mean_` / `rate_` prefixes — `mean_groundedness`, `mean_citation_coverage`,
+  `rate_numeric_accuracy`, `rate_citation_format`, `rate_escalation_correctness`,
+  `verdict` — so they read clearly as rollups, truncate unambiguously, and **never clash**
+  with the per-item score names. Computed from `item_results`, so they can't disagree with
+  the cells.
+
+(Aside: on the current "Faster Langfuse experience (preview)" the per-item *aggregate
+column picker* can surface only a subset of the `run_experiment` `evaluators=` scores
+until the rules are triggered — the run-level column always shows the deltas.)
 
 Known cosmetics (say it before they ask): prompt-version *creation* timestamps can't
 be backdated (era linkage on generations carries the story); seeded scores show source

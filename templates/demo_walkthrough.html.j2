@@ -142,12 +142,12 @@
         <li><code>{{ cand_a.name }}</code> — passes, groundedness ↑ (~0.94 vs ~0.90), cost ↓</li>
         <li><code>{{ cand_b.name }}</code> — <span class="pill fail">numeric_lookup {{ '%.1f%%'|format((cand_b.pass_rates or {}).get('numeric_lookup', 0)*100) }} vs ≥{{ '%.0f%%'|format(gates.get('numeric_lookup', 0.95)*100) }} → REJECTED</span></li>
       </ul>
-      <p>The headline deltas live in the <strong>Experiment-Level Scores</strong> column (per-run aggregates written as
-      <code>datasetRunId</code>-linked scores): <code>groundedness_mean</code>, <code>numeric_accuracy_rate</code>,
-      <code>verdict</code>. Read across the rows — candidate B's <code>numeric_accuracy_rate</code> and
-      <code>groundedness_mean</code> are visibly lowest. <em>(The per-item score columns under
-      <strong>Columns → Scores</strong> can be flaky on the "faster experiments" preview — only a subset surfaces — so
-      lean on the Experiment-Level Scores column for the comparison.)</em></p>
+      <p>The headline deltas show in the <strong>Experiment-Level Scores</strong> column — per-run rollups
+      <code>mean_groundedness</code>, <code>rate_numeric_accuracy</code>, <code>verdict</code> (plus
+      <code>mean_citation_coverage</code>, <code>rate_citation_format</code>, <code>rate_escalation_correctness</code>).
+      Read across — candidate B's <code>rate_numeric_accuracy</code> and <code>mean_groundedness</code> are visibly
+      lowest. <em>For per-item detail, the per-item score columns fill when you trigger the evaluators on a run (rules
+      don't backfill the seeded runs).</em></p>
       <p>Drill into one of candidate B's red items: the <code>numeric_accuracy</code> comment states exactly which figure
       diverged from the printed table. A real decision, on screen: ship A, reject B.</p>
       <p class="say">Certification of any change — model, prompt, parameters — is an experiment run, not a six-week project.</p>

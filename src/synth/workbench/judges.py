@@ -167,14 +167,26 @@ def ensure_code_evaluator(cfg: Config, name: str, source: str) -> tuple[dict | N
     return None, f"{resp.status_code}: {resp.text[:300]}"
 
 
+def _looks_like_real_anthropic_key(key: str) -> bool:
+    """A real Anthropic key is ``sk-ant-…`` and well over 40 chars. Guards against the
+    ``.env`` placeholder (``sk-ant-...``) being upserted — which would create/CLOBBER the
+    project's LLM connection with an invalid secret (preflight then 401s on the judges)."""
+    return key.startswith("sk-ant-") and len(key) > 40
+
+
 def ensure_llm_connection(cfg: Config) -> tuple[bool, str]:
     """Upsert an LLM connection so the managed judges have a model to run on. Uses
     ``ANTHROPIC_API_KEY`` from env (matches the judge_model provider). Returns
-    ``(ok, message)``. Without a key, the judges can't be created — the caller skips."""
+    ``(ok, message)``. Without a *real* key, the judges can't be created — the caller
+    skips, but any connection already configured in the project is left untouched."""
     base = cfg.target.base_url
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
         return False, "no ANTHROPIC_API_KEY in env — add an LLM connection in project settings"
+    if not _looks_like_real_anthropic_key(key):
+        return False, ("ANTHROPIC_API_KEY looks like a placeholder — NOT upserting (would "
+                       "clobber a real connection). Paste a real key in .env or add the "
+                       "connection in project settings, then re-run `synth evaluators`")
     body = {"provider": "anthropic", "adapter": "anthropic", "secretKey": key,
             "withDefaultModels": True}
     resp, err = _request("PUT", f"{base.rstrip('/')}/api/public/llm-connections",

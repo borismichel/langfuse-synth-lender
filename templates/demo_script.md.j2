@@ -65,12 +65,12 @@ Open `{{ suite_info.name }}` → **Experiments**: three runs on the same suite, 
 - `{{ cand_a.name }}` — passes, groundedness ↑ (~0.94 vs ~0.90), cost ↓
 - `{{ cand_b.name }}` — **numeric_lookup {{ '%.1f%%'|format((cand_b.pass_rates or {}).get('numeric_lookup', 0)*100) }} vs ≥{{ '%.0f%%'|format(gates.get('numeric_lookup', 0.95)*100) }} → REJECTED**
 
-The headline deltas live in the **Experiment-Level Scores** column (per-run aggregates
-written as `datasetRunId`-linked scores): `groundedness_mean`, `numeric_accuracy_rate`,
-`verdict`. Read across the rows — candidate B's `numeric_accuracy_rate` and
-`groundedness_mean` are visibly lowest. (The per-item score columns under
-**Columns → Scores** can be flaky on the "faster experiments" preview — only a subset
-surfaces — so lean on the Experiment-Level Scores column for the comparison.)
+The headline deltas show in the **Experiment-Level Scores** column — per-run rollups
+`mean_groundedness`, `rate_numeric_accuracy`, `verdict` (plus `mean_citation_coverage`,
+`rate_citation_format`, `rate_escalation_correctness`). Read across — candidate B's
+`rate_numeric_accuracy` and `mean_groundedness` are visibly lowest. For per-item detail,
+the per-item **score columns** fill when you trigger the evaluators on a run (rules don't
+backfill the seeded runs).
 
 Drill into one of candidate B's red items: the `numeric_accuracy` comment states exactly
 which figure diverged from the printed table. A real decision, on screen: ship A, reject B.

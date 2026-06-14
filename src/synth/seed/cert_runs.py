@@ -106,54 +106,50 @@ def seed_experiment_runs(cfg, lf, cert, log: Callable[[str], None] = print) -> i
     return len(cert.runs)
 
 
+# Run-LEVEL aggregate score names. Distinct ``mean_`` / ``rate_`` prefixes so they read
+# clearly as per-run rollups, sort/truncate unambiguously in the UI (the old
+# ``citation_coverage_mean`` / ``citation_format_rate`` both truncated to "citation…"),
+# and never CLASH with the per-item (observation) score names (``groundedness``,
+# ``citation_coverage``, ``numeric_accuracy``, …). Langfuse shows them under the
+# "Experiment: …" / Experiment-Level Scores column.
+RUN_LEVEL_SCORES = {
+    "mean_groundedness": ("groundedness", "mean"),
+    "mean_citation_coverage": ("citation_coverage", "mean"),
+    "rate_numeric_accuracy": ("numeric_accuracy", "rate"),
+    "rate_citation_format": ("citation_format", "rate"),
+    "rate_escalation_correctness": ("escalation_correctness", "rate"),
+}
+
+
 def _run_level_evaluators(run: CertRunPlan):
-    """Run-level evaluators in the documented ``run_experiment`` shape:
-    ``fn(*, item_results, **kwargs)`` returning a single ``Evaluation`` that the SDK
-    attaches to the **full dataset run** (not the items). These render in the
-    Experiments overview's **"Experiment-Level Scores"** column.
-
-    Why we need them: the per-ITEM score aggregate columns in the comparison view are
-    unreliable on newer Langfuse (the "faster experiments" preview surfaces only a
-    subset of identically-shaped item scores — we observed only ``citation_coverage``,
-    hiding the ``groundedness``/``numeric_accuracy`` deltas). Run-level scores carry the
-    headline deltas (groundedness 0.90/0.94/0.86, candidate B's numeric-accuracy miss)
-    reliably. They are computed from ``item_results`` — i.e. the very item evaluations
-    seeded above — so the rollup can never disagree with the cells.
-
-    This is the SDK-blessed path (docs: Experiments via SDK → Run-level Evaluators),
-    replacing an earlier manual ``POST /api/public/scores`` workaround."""
+    """Run-level evaluators (documented ``run_experiment`` shape:
+    ``fn(*, item_results, **kwargs)`` returning one ``Evaluation`` attached to the FULL
+    dataset run — the Experiment-Level Scores column). They give an at-a-glance per-run
+    rollup of the headline deltas (candidate B's numeric miss, the groundedness spread)
+    next to the per-item score columns. Computed from ``item_results`` — the very item
+    evaluations seeded above — so the rollup can't disagree with the cells. Names use
+    ``mean_`` / ``rate_`` prefixes (see RUN_LEVEL_SCORES) to stay clear and clash-free."""
     from langfuse import Evaluation
 
-    def _num_mean(item_name: str, out_name: str):
+    def _agg(out_name: str, item_name: str, kind: str):
         def ev(*, item_results, **kwargs):
-            vals = [e.value for r in item_results for e in (r.evaluations or [])
-                    if e.name == item_name and isinstance(e.value, (int, float))]
-            return Evaluation(name=out_name,
-                              value=round(sum(vals) / len(vals), 3) if vals else None,
-                              comment=f"mean over {len(vals)} items")
-        ev.__name__ = out_name
-        return ev
-
-    def _pass_rate(item_name: str, out_name: str):
-        def ev(*, item_results, **kwargs):
-            flags = [1.0 if str(e.value) == "pass" else 0.0 for r in item_results
-                     for e in (r.evaluations or []) if e.name == item_name]
-            return Evaluation(name=out_name,
-                              value=round(sum(flags) / len(flags), 3) if flags else None,
-                              comment=f"pass rate over {len(flags)} items")
+            evals = [e for r in item_results for e in (r.evaluations or []) if e.name == item_name]
+            if kind == "mean":
+                vals = [e.value for e in evals if isinstance(e.value, (int, float))]
+                v = round(sum(vals) / len(vals), 3) if vals else None
+                comment = f"mean over {len(vals)} items"
+            else:  # pass rate over a categorical pass/fail item score
+                flags = [1.0 if str(e.value) == "pass" else 0.0 for e in evals]
+                v = round(sum(flags) / len(flags), 3) if flags else None
+                comment = f"pass rate over {len(flags)} items"
+            return Evaluation(name=out_name, value=v, comment=comment)
         ev.__name__ = out_name
         return ev
 
     def verdict(*, item_results, **kwargs):
-        return Evaluation(name="verdict", value=run.verdict,
-                          comment="certification gate verdict")
+        return Evaluation(name="verdict", value=run.verdict, comment="certification gate verdict")
 
-    return [_num_mean("groundedness", "groundedness_mean"),
-            _num_mean("citation_coverage", "citation_coverage_mean"),
-            _pass_rate("numeric_accuracy", "numeric_accuracy_rate"),
-            _pass_rate("citation_format", "citation_format_rate"),
-            _pass_rate("escalation_correctness", "escalation_correctness_rate"),
-            verdict]
+    return [_agg(out, item, kind) for out, (item, kind) in RUN_LEVEL_SCORES.items()] + [verdict]
 
 
 def run_pass_rates(run: CertRunPlan) -> dict[str, float]:

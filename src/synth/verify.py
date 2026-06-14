@@ -151,17 +151,22 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
         for name in expected:
             hit = next((a for a in actual_names if a.startswith(name)), None)
             (matched.append(hit) if hit else missing.append(name))
-        # confirm one matched run actually carries items (empty run = won't surface)
-        empty = ""
-        if matched:
-            det = _get_resp(base, f"/api/public/datasets/{suite['name']}/runs/{matched[0]}")
-            if det.status_code == 200 and not (det.json().get("datasetRunItems") or []):
-                empty = matched[0]
-        ok = not missing and not empty
+        # Each run must carry the FULL item count (== suite size). An empty run won't
+        # surface in the Experiments tab; a short run (e.g. 71/72) means a run item was
+        # dropped — exactly the symptom of a transient ingest blip during run_experiment.
+        want_items = suite.get("items")
+        short = []  # (run, count) for runs missing items
+        for name in matched:
+            det = _get_resp(base, f"/api/public/datasets/{suite['name']}/runs/{name}")
+            n = len(det.json().get("datasetRunItems") or []) if det.status_code == 200 else 0
+            if want_items and n != want_items:
+                short.append((name[:28], n))
+        ok = not missing and not short
         report.add("seeded_runs", ok,
                    f"runs on {suite['name']} (prefix-matched, SDK adds a timestamp suffix): "
-                   f"{len(matched)}/{len(expected)} present; missing {missing or 'none'}"
-                   + (f"; EMPTY {empty}" if empty else ""))
+                   f"{len(matched)}/{len(expected)} present @ {want_items} items each; "
+                   f"missing {missing or 'none'}"
+                   + (f"; SHORT {short}" if short else ""))
     except Exception as exc:  # noqa: BLE001
         report.add("seeded_runs", False, f"error: {exc}")
 

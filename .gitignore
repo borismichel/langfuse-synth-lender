@@ -27,3 +27,4 @@ venv/
 
 # local-only Langfuse bug-report draft (not part of the kit)
 ISSUE_experiment_scores.md
+DEMO_WALKTHROUGH.html

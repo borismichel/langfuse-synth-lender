@@ -6,6 +6,8 @@ Asserts:
   ``sourceTraceId`` links,
 - all three seeded runs exist as dataset runs; ``numeric_accuracy = fail`` scores with
   reasons exist (candidate B's red cells are real),
+- each run item carries a prompt-linked ``answer`` generation (references the production
+  prompt) with a real token/cost column,
 - the golden traces exist and are tagged ``golden``,
 - the pending flagged trace exists, carries the analyst's down-vote + comment, and is
   NOT in the suite,
@@ -169,6 +171,36 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
                    + (f"; SHORT {short}" if short else ""))
     except Exception as exc:  # noqa: BLE001
         report.add("seeded_runs", False, f"error: {exc}")
+
+    # -- run items reference the production prompt + carry cost ----------------------
+    # New (2026-06-15): each run item emits a prompt-linked ``answer`` generation, so the
+    # runs reference analyst-copilot and carry a real token/cost column (parity with the
+    # production traces). Spot-check one run item's trace for the link + cost.
+    try:
+        runs = _get(base, f"/api/public/datasets/{suite['name']}/runs",
+                    {"limit": 50}).get("data", [])
+        rname = runs[0].get("name") if runs else None
+        linked = costed = False
+        detail = "no runs found"
+        if rname:
+            det = _get_resp(base, f"/api/public/datasets/{suite['name']}/runs/{rname}")
+            items = (det.json().get("datasetRunItems") or []) if det.status_code == 200 else []
+            tid = next((i.get("traceId") for i in items if i.get("traceId")), None)
+            detail = f"run {rname[:28]!r}: no item trace"
+            if tid:
+                trace = _get(base, f"/api/public/traces/{tid}")
+                for o in trace.get("observations", []):
+                    if o.get("name") != "answer":
+                        continue
+                    if o.get("promptName") == state.prompt_name and o.get("promptVersion"):
+                        linked = True
+                    if (o.get("costDetails") or {}).get("total") or o.get("calculatedTotalCost"):
+                        costed = True
+                detail = (f"run {rname[:28]!r} item trace {tid[:12]}… "
+                          f"prompt-linked={linked}, cost={costed}")
+        report.add("run_prompt_link", linked and costed, detail)
+    except Exception as exc:  # noqa: BLE001
+        report.add("run_prompt_link", False, f"error: {exc}")
 
     # -- run-level (Experiment-Level) aggregate scores -----------------------------
     # Per-run rollups attached to the dataset run (mean_/rate_ prefixed, clash-free with

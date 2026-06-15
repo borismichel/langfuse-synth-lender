@@ -25,9 +25,11 @@ from typing import Callable
 import requests
 
 from ..agent import answer_deterministic
+from ..content import answer_messages
 from ..grading import grade, item_passes
 from ..models import AnalystQuestion
 from .certification import CertRunPlan
+from .prompts import prompt_text
 
 
 def _run_evaluators(run: CertRunPlan):
@@ -88,15 +90,29 @@ def _run_evaluators(run: CertRunPlan):
             groundedness, citation_coverage]
 
 
-def _seed_task(run: CertRunPlan, error_map: dict):
-    """Deterministic, no-model task in the EXACT documented run_experiment shape:
-    ``task(*, item, **kwargs)`` returns the output; run_experiment owns the item trace
-    (do NOT create observations inside — that detaches the item trace and the run lands
-    with zero items). Replays the templated answer with this run's injected error mode."""
+def _seed_task(lf, run: CertRunPlan, error_map: dict, by_id: dict, prompt_obj, pver: int):
+    """Deterministic, no-model task in the documented ``run_experiment`` shape.
+
+    On SDK v4 the task runs INSIDE the item's ``experiment-item-run`` span, so a
+    generation created here nests under that item trace — it does NOT detach it (the
+    "create zero observations" rule was a v3 limitation, found 2026-06-13; v4 changed the
+    model). We emit one prompt-linked ``answer`` generation per item so every run item
+    references the production prompt (``analyst-copilot`` v{pver}) and carries a real
+    token/cost column — same vocabulary and shape as the production traces. Still no model
+    call: the answer + usage/cost are precomputed deterministically in ``build_runs``."""
     def task(*, item, **kwargs):
         q = AnalystQuestion.from_input(item.input)
-        err = error_map.get(getattr(item, "id", None))
-        return answer_deterministic(q, error_mode=err).model_dump()
+        iid = getattr(item, "id", None)
+        ans = answer_deterministic(q, error_mode=error_map.get(iid))
+        ri = by_id.get(iid)
+        with lf.start_as_current_observation(
+            as_type="generation", name="answer", model=run.model,
+            input=answer_messages(prompt_text(pver), q, []), output=ans.model_dump(),
+            usage_details=(ri.usage if ri else None),
+            cost_details=(ri.cost if ri else None),
+            model_parameters={"temperature": 0}, prompt=prompt_obj):
+            pass
+        return ans.model_dump()
 
     return task
 
@@ -107,20 +123,23 @@ def seed_experiment_runs(cfg, lf, cert, log: Callable[[str], None] = print) -> i
     tab and supports both code and LLM-as-judge evaluators. Returns runs created."""
     cert_cfg = cfg.certification
     dataset = lf.get_dataset(cert_cfg.dataset.name)
+    prompt_obj = None
     try:
-        pver = getattr(lf.get_prompt(cert_cfg.prompt_name, label="production", type="chat",
-                                     cache_ttl_seconds=0), "version", cert_cfg.production_version)
+        prompt_obj = lf.get_prompt(cert_cfg.prompt_name, label="production", type="chat",
+                                   cache_ttl_seconds=0)
+        pver = getattr(prompt_obj, "version", cert_cfg.production_version)
     except Exception:  # noqa: BLE001
         pver = cert_cfg.production_version
 
     for run in cert.runs:
         error_map = {it.item_id: it.run_errors.get(run.key) for it in cert.suite}
+        by_id = {ri.item.item_id: ri for ri in run.items}
         dataset.run_experiment(
             name=run.run_name,
             description=run.description,
             metadata={"model": run.model, "verdict": run.verdict,
                       "release": f"{run.model}+{cert_cfg.prompt_name}.v{pver}", "seeded": True},
-            task=_seed_task(run, error_map),
+            task=_seed_task(lf, run, error_map, by_id, prompt_obj, pver),
             evaluators=_run_evaluators(run),
             run_evaluators=_run_level_evaluators(run))
         lf.flush()

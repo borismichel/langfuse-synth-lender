@@ -8,6 +8,7 @@ DEMO_SCRIPT.md
 DEMO_MAP.md
 CERT_MEMO.md
 .seed.log
+.seed.run.log
 
 # Python
 __pycache__/
@@ -33,6 +34,7 @@ DEMO_WALKTHROUGH.html
 CHECKLIST.md
 CONFIGURATIONS.md
 SLIDES_FIT.md
+WORKBENCH.md
 langfuse-demo-synth-spec.md
 langfuse-demo-synth-spec-v2.md
 mrm-demo-session-summary.html

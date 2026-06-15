@@ -61,11 +61,14 @@ trace/object to open) — filled with this run's real ids.
 - **`certification-suite`** (72 items, one hosted dataset) tagged by scenario —
   summary 14 · numeric_lookup 22 · trend 10 · covenant 14 · out_of_scope 12 — curated
   items carry `sourceTraceId`; per-scenario gates in config.
-- **Three seeded experiment runs** on that suite (backdated, procedurally scored):
-  `baseline-claude-sonnet-4-5` passes; `cert-claude-sonnet-4-6` passes with better
-  groundedness (~0.94 vs ~0.91) at lower cost; `cert-claude-haiku-4-5` **fails
-  numeric_lookup (81.8% vs ≥95%)** — every red cell's comment states the exact figure
-  that diverged from the printed table.
+- **Three seeded experiment runs** on that suite (procedurally scored): each run item
+  emits a prompt-linked `answer` generation — so every run **references the production
+  `analyst-copilot` prompt** and carries a real token/cost column (same vocabulary as the
+  production traces). `baseline-claude-sonnet-4-5` passes; `cert-claude-sonnet-4-6` passes
+  with better groundedness (~0.94 vs ~0.91) at **lower cost** (tighter outputs, now a real
+  number); `cert-claude-haiku-4-5` is cheapest per token but **fails numeric_lookup
+  (81.8% vs ≥95%)** — every red cell's comment states the exact figure that diverged from
+  the printed table.
 - **`certification-review` queue** — 16 completed (human `reviewer_verdict` + judge
   scores side by side, ~88% agreement with visible disagreements) and 14 pending,
   including a fresh flagged thumbs-down awaiting promotion (the live beat).

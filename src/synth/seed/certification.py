@@ -27,8 +27,10 @@ from datetime import datetime, timedelta
 from ..agent import answer_deterministic
 from ..config import Config
 from ..content import SCENARIO_OF_KIND, build_question, flagged_cases
+from ..distributions import cache_split, sample_tokens, text_tokens
 from ..filings import BORROWERS, case_id, excerpt_debt, excerpt_income, excerpt_metrics, financials
 from ..models import AnalystQuestion, CopilotAnswer
+from ..pricing import cost_details, usage_details
 from ..rng import Rng
 from ..timegen import day_anchor
 
@@ -65,6 +67,8 @@ class CertRunItem:
     got: CopilotAnswer
     trace_id: str = ""
     timestamp: datetime | None = None
+    usage: dict = field(default_factory=dict)   # token usage on this item's answer generation
+    cost: dict = field(default_factory=dict)    # EUR cost from model pricing x usage
 
 
 @dataclass
@@ -255,12 +259,25 @@ def build_runs(cfg: Config, rng: Rng, run_date: datetime,
             verdict="fail", groundedness_mu=0.88),
     ]
     for plan in plans:
+        pricing = cfg.model_named(plan.model)
         for n, item in enumerate(suite):
             err = item.run_errors.get(plan.key)
             got = answer_deterministic(item.question, error_mode=err)
             ts = plan.run_date + timedelta(
                 seconds=18 * n + rng.sub("runjitter", plan.key, n).randint(0, 9))
-            plan.items.append(CertRunItem(item=item, got=got, timestamp=ts))
+            # Deterministic per-item usage/cost so the run comparison carries a REAL
+            # cost column: candidate A is cheaper via token_factor (tighter outputs),
+            # candidate B (haiku) is cheapest per token but fails the accuracy gate.
+            ru = rng.sub("runusage", plan.key, n)
+            it_, ot_, _ = sample_tokens(
+                ru, "work", visible_input=text_tokens(item.question.model_dump()),
+                visible_output=text_tokens(got.model_dump()))
+            ot_ = max(1, int(ot_ * plan.token_factor))
+            ti_, cr_, cc_ = cache_split(ru, "work", it_)
+            plan.items.append(CertRunItem(
+                item=item, got=got, timestamp=ts,
+                usage=usage_details(ti_, ot_, cr_, cc_),
+                cost=cost_details(pricing, ti_, ot_, cr_, cc_)))
     return plans, baseline_date, candidate_date
 
 

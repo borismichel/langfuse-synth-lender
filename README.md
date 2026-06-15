@@ -45,11 +45,16 @@ trace/object to open) — filled with this run's real ids.
   (Zipf-like; ~12% of traces from German-named analysts whose sessions are FULLY
   German — language never mixes within a user or chat), 1–3% tool errors **with retry spans**, a handful of
   failed generations, a nightly covenant-monitor batch line (ambience).
-- **Per-turn structure:** `copilot-turn` root → `filings_search` → `document_fetch` →
-  `table_extract` (per filing on trend questions) → optional `covenant_db_lookup` /
-  `internal_ratings_lookup` → ONE generation linked to the **exact prompt version live
-  at its timestamp** → `escalated_to_human` event where applicable. Metadata:
-  release/git_sha, prompt_version, `filing-type:` / `desk:` / `language:` tags.
+- **Per-turn structure:** the root `copilot-turn` is a **planner generation** (reads the
+  prompt + question and decides which tools to call — an extended-thinking pass with
+  `reasoning` tokens; it envelopes the turn like Vercel's `ai.streamText`), parenting →
+  `filings_search` → `document_fetch` → `table_extract` (per filing on trend questions) →
+  optional `covenant_db_lookup` / `internal_ratings_lookup` → the nested `answer`
+  generation (the synthesis — real tokens/cost, linked to the **exact prompt version live
+  at its timestamp**) → `escalated_to_human` event where applicable. Real spend lives on
+  `answer`, so the trace aggregates the two genuine calls (plan + synthesis) without
+  double-counting. Metadata: release/git_sha, prompt_version, `filing-type:` / `desk:` /
+  `language:` tags.
 - **Prompt `analyst-copilot`:** 8 versions with commit-message history; `production` =
   v7, `staging` = v8; a mid-window v5→v6 transition and a v7 "fix" — with an optional,
   subtle groundedness dip in the v6 era (flag: `ambience.quality_dip`).

@@ -1,14 +1,22 @@
 """Build one trace's full event tree (spec v2 §5), backdated.
 
     trace: copilot-turn                       userId=analyst, sessionId=chat
-     └─ AGENT: copilot-turn                   (root span — parents everything below)
+     └─ generation: copilot-turn              (root PLANNER — reads the prompt+question
+         │                                     and decides which tools to call: an
+         │                                     extended-thinking pass (visible plan +
+         │                                     hidden `reasoning` tokens, `plan` role).
+         │                                     Envelopes the whole turn like Vercel's
+         │                                     ai.streamText; its OWN usage is the
+         │                                     planning, the children carry the rest.)
          ├─ RETRIEVER: filings_search         (vector search; ranked hits)
          ├─ TOOL: document_fetch              (fetch matched sections)
          ├─ TOOL: table_extract               (numeric / trend / covenant turns)
          ├─ TOOL: covenant_db_lookup          (covenant turns)
          ├─ TOOL: internal_ratings_lookup     (occasional context call)
-         ├─ generation: answer                (THE generation — linked to the exact
-         │                                     analyst-copilot prompt version)
+         ├─ generation: answer                (THE synthesis generation — carries the
+         │                                     real tokens/cost, linked to the exact
+         │                                     analyst-copilot prompt version; the
+         │                                     score surface attaches here)
          └─ EVENT: escalated_to_human         (when the copilot escalates)
 
 Timestamps walk a cursor forward from the trace timestamp; trace latency is the
@@ -158,6 +166,14 @@ def build_trace_events(rng: Rng, cfg: Config, spec: TraceSpec, prompt_version: i
     tool_calls = [{"id": search_call_id, "name": "filings_search"},
                   {"id": fetch_call_id, "name": "document_fetch"}]
 
+    # -- planning pass --------------------------------------------------------
+    # The agent reasons over the prompt + question and decides which tools to call
+    # BEFORE any retrieval runs. The root generation (emitted last, enveloping the
+    # whole turn) carries this planning/decision usage; tools begin once the plan
+    # is decided. `plan_start`/`plan_done` bound the deciding window.
+    plan_start = spec.timestamp
+    _, plan_done = cur.advance(sample_latency_ms(r, "plan", spec.slow_factor))
+
     # -- filings_search (RETRIEVER) ----------------------------------------
     sin, sout = filings_search_io(q, spec.filing)
     _tool(events, r, cur, obs_id=r.obs_id("search", tid), trace_id=tid, name="filings_search",
@@ -256,13 +272,39 @@ def build_trace_events(rng: Rng, cfg: Config, spec: TraceSpec, prompt_version: i
             metadata={"route": "senior_credit_officer", "reason": "conflicting sources"},
             input={"case_id": q.case_id}, output={"queued": True}))
 
-    # -- root AGENT span (spans the whole turn) -------------------------------
-    events.insert(0, observation_event(
-        obs_id=agent_id, trace_id=tid, name="copilot-turn", obs_type="AGENT",
-        start=spec.timestamp, end=cur.t, environment=env,
+    # -- root planner generation (spans the whole turn) -----------------------
+    # The agent's planning/decision call: reads the prompt + question and decides
+    # which tools to invoke — an extended-thinking pass (visible plan + hidden
+    # `reasoning` tokens, the `plan` role profile). Like Vercel's ai.streamText it
+    # envelopes the entire turn; its OWN usage is the planning, while the nested
+    # tools and the `answer` generation carry the rest. The real synthesis tokens
+    # live on `answer`, so the trace aggregates two genuine calls (plan + synthesis)
+    # without double-counting. Scores still attach to `answer` (spec.answer_obs_id).
+    plan_output = {"decision": "call_tools", "tool_calls": tool_calls}
+    if answer_usage is not None:   # live: no separately-measured planner call — keep it light
+        p_in, p_out, p_reason = text_tokens(answer_input), text_tokens(plan_output), 0
+        pti, pcr, pcc = p_in, 0, 0
+    else:
+        p_in, p_out, p_reason = sample_tokens(
+            r, "plan", visible_input=text_tokens(answer_input),
+            visible_output=text_tokens(plan_output), context_tokens=history_tokens)
+        p_out = max(1, int(p_out * spec.token_factor))
+        p_reason = int(p_reason * spec.token_factor)
+        pti, pcr, pcc = cache_split(r, "plan", p_in)
+    events.insert(0, generation_event(
+        obs_id=agent_id, trace_id=tid, name="copilot-turn",
+        start=plan_start, end=cur.t,
+        completion_start=_first_token_at(r, plan_start, plan_done),
+        model=answer_model,
+        usage_details=usage_details(pti, p_out, pcr, pcc, reasoning=p_reason),
+        cost_details=cost_details(answer_pricing, pti, p_out, pcr, pcc, reasoning=p_reason),
+        environment=env,
         input=q.model_dump(),
-        output={"error": "generation failed"} if gen_failed else spec.answer.model_dump(),
-        metadata={"tool_calls": tool_calls, "case_id": q.case_id}))
+        output=plan_output,
+        model_parameters={"temperature": 1, "thinking": "enabled", "thinking_budget_tokens": 2048},
+        metadata={"tool_calls": tool_calls, "case_id": q.case_id, "step": "plan"},
+        prompt_name=cfg.certification.prompt_name if pver else None,
+        prompt_version=pver))
 
     # -- trace shell -----------------------------------------------------------
     events.insert(0, trace_event(

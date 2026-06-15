@@ -5,6 +5,7 @@ tagged by scenario type and, where curated from production, carrying a
 from __future__ import annotations
 
 from ..config import Config
+from ..content import user_turn
 from .certification import Certification, requirement_ids_for
 
 
@@ -23,13 +24,19 @@ def create_suite(lf, cfg: Config, cert: Certification) -> dict:
     )
     created = 0
     for it in cert.suite:
+        # input = the analyst's turn as a readable chat message (question + retrieved
+        # extracts) — what the model saw — NOT the bare AnalystQuestion object. The
+        # structured question is preserved in metadata (`analyst_question`) so the
+        # deterministic task/grader can still reconstruct figures/excerpts. The system
+        # prompt is the thing under test, applied per-run, so it stays OUT of the item.
         lf.create_dataset_item(
             dataset_name=name,
             id=it.item_id,
-            input=it.question.model_dump(),
+            input=[{"role": "user", "content": user_turn(it.question)}],
             expected_output=it.expected.model_dump(),
             metadata={"scenario": it.scenario, "slice": it.scenario, "curated": it.curated,
-                      "requirement_ids": requirement_ids_for(it.scenario)},
+                      "requirement_ids": requirement_ids_for(it.scenario),
+                      "analyst_question": it.question.model_dump()},
             source_trace_id=it.source_trace_id,
         )
         created += 1

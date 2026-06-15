@@ -299,7 +299,7 @@ def build_trace_events(rng: Rng, cfg: Config, spec: TraceSpec, prompt_version: i
         usage_details=usage_details(pti, p_out, pcr, pcc, reasoning=p_reason),
         cost_details=cost_details(answer_pricing, pti, p_out, pcr, pcc, reasoning=p_reason),
         environment=env,
-        input=q.model_dump(),
+        input=answer_input,
         output=plan_output,
         model_parameters={"temperature": 1, "thinking": "enabled", "thinking_budget_tokens": 2048},
         metadata={"tool_calls": tool_calls, "case_id": q.case_id, "step": "plan"},

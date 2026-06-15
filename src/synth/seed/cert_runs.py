@@ -101,10 +101,14 @@ def _seed_task(lf, run: CertRunPlan, error_map: dict, by_id: dict, prompt_obj, p
     token/cost column — same vocabulary and shape as the production traces. Still no model
     call: the answer + usage/cost are precomputed deterministically in ``build_runs``."""
     def task(*, item, **kwargs):
-        q = AnalystQuestion.from_input(item.input)
         iid = getattr(item, "id", None)
-        ans = answer_deterministic(q, error_mode=error_map.get(iid))
         ri = by_id.get(iid)
+        if ri is not None:                       # the precomputed, error-injected answer
+            q, ans = ri.item.question, ri.got
+        else:                                    # fallback: structured Q from metadata
+            meta = getattr(item, "metadata", None) or {}
+            q = AnalystQuestion.from_input(meta.get("analyst_question") or item.input)
+            ans = answer_deterministic(q, error_mode=error_map.get(iid))
         with lf.start_as_current_observation(
             as_type="generation", name="answer", model=run.model,
             input=answer_messages(prompt_text(pver), q, []), output=ans.model_dump(),

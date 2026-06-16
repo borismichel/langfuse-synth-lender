@@ -128,7 +128,8 @@ synth submit | playground                        # live copilot + /dossier + /wo
 The **Validation Workbench** (`synth playground` → `/workbench`, see
 [`WORKBENCH.md`](WORKBENCH.md)) is the branded governance layer on the same APIs:
 spec designer, evaluator code injection, runs/results/compare, requirement coverage,
-promote-from-queue, sign-off + evidence packs.
+promote-from-queue, sign-off + evidence packs. *(The `playground`/`workbench` app is a
+work-in-progress, alpha-stage surface — the seed pipeline is the supported path.)*
 
 ## Architecture notes
 

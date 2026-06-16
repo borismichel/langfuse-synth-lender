@@ -1,51 +1,27 @@
 # Langfuse Demo Data Synthesiser — MRM Lending-Copilot Certification (Spec v2)
 
 ## The business case & story arc
-
-**The business.** A commercial lender's credit analysts answer questions over financial
-filings all day — "summarise the covenant package", "what's the DSCR trend across the
-last three filings", "does this 10-K breach the leverage ratio". An **analyst copilot**
-does the first pass: it searches filings, fetches documents, extracts tables, and
-synthesises a cited answer. Because that answer feeds credit decisions, it falls under
-**Model Risk Management (MRM)** — every change to the model, prompt, or parameters must
-be *certified* before it ships, and the certification has to leave an audit trail a
-regulator can read.
-
-**The tension.** A cheaper model is on the table. Does it hold the line on the one thing
-that can't slip — getting the numbers right against the printed tables? That is the
-question this dataset is built to answer on screen.
-
+ 
+**The business.** A commercial lender's credit analysts answer questions over financial filings all day: "summarise the covenant package", "what's the DSCR trend across the last three filings", "does this 10-K breach the leverage ratio". An analyst copilot does the first pass. It searches filings, fetches documents, extracts tables, and synthesises a cited answer. Because that answer feeds credit decisions, it falls under Model Risk Management (MRM). Every change to the model, prompt, or parameters must be *certified* before it ships, and the certification has to leave an audit trail a regulator can read.
+ 
+**The tension.** A cheaper model is on the table. Does it hold the line on the one thing that can't slip: getting the numbers right against the printed tables? That's what this dataset answers on screen.
+ 
 **The arc** (the five-row demo walks it end to end):
-1. **Production reality** — ~10–12k real traces show the copilot working at scale: planner
-   generation → tool calls → cited synthesis, with the occasional tool error, escalation,
-   and hallucination caught in the wild.
-2. **Ground truth** — analysts and reviewers annotate those traces; the best become a
-   72-item **`certification-suite`**, the human-validated yardstick.
-3. **The contest** — three **experiment runs** race on that suite against the *live
-   production prompt*: `baseline` (Sonnet 4.5) passes; candidate **A** (Sonnet 4.6) passes
-   *better and cheaper*; candidate **B** (Haiku 4.5) is cheapest per token but **fails the
-   numeric-accuracy gate (81.8% vs ≥95%)** — every red cell names the figure that diverged.
-4. **The catch** — deterministic checks, LLM judges, and human reviewers all converge on
-   the same verdict, so the governance gate stops candidate B *before* it ships.
-5. **One evidence trail** — all five score-method types, the same vocabulary across
-   production traces and certification runs, on one surface a model-risk officer signs off.
-
-The companion `ev` kit tells the prompt-loop story; **this kit tells the certification
-story** — how a regulated lender proves a change is safe before trusting it.
-
+ 
+1. **Production reality.** ~10–12k real traces show the copilot working at scale: planner generation → tool calls → cited synthesis, with the occasional tool error, escalation, and hallucination caught in the wild.
+2. **Ground truth.** Analysts and reviewers annotate those traces; the best become a 72-item `certification-suite`, the human-validated yardstick.
+3. **The contest.** Three experiment runs race on that suite against the *live production prompt*: `baseline` (Sonnet 4.5) passes; candidate A (Sonnet 4.6) passes better and cheaper; candidate B (Haiku 4.5) is cheapest per token but **fails the numeric-accuracy gate (81.8% vs ≥95%)**. Every red cell names the figure that diverged.
+4. **The catch.** Deterministic checks, LLM judges, and human reviewers all converge on the same verdict, so the governance gate stops candidate B before it ships.
+5. **One evidence trail.** All five score-method types, the same vocabulary across production traces and certification runs, on one surface a model-risk officer signs off.
+The companion `ev` kit tells the prompt-loop story; this kit tells the certification story: how a regulated lender proves a change is safe before trusting it.
+ 
 ---
+ 
+Seed a Langfuse project (Cloud free tier or self-hosted) with realistic telemetry and pre-built certification objects for the MRM lending-copilot scenario: a commercial lender's analyst copilot over financial filings, certified for any change (model, prompt, parameters) through an automated pipeline: production traces → human-validated ground truth → comparative experiment runs → one evidence trail.
+ 
+> production runs → `certification-suite` curated from annotated traces → three seeded experiment runs (baseline passes · candidate A passes better/cheaper · **candidate B fails the numeric-accuracy gate**) → all five score-method types on one surface.
 
-Seed a Langfuse project (Cloud free tier or self-hosted) with realistic telemetry and
-**pre-built certification objects** for the MRM lending-copilot scenario: a commercial
-lender's **analyst copilot over financial filings**, certified for any change (model,
-prompt, parameters) through an automated pipeline — production traces → human-validated
-ground truth → comparative experiment runs → one evidence trail.
-
-> production runs → `certification-suite` curated from annotated traces → three seeded
-> experiment runs (baseline passes · candidate A passes better/cheaper · **candidate B
-> fails the numeric-accuracy gate**) → all five score-method types on one surface.
-
----
+--- 
 
 ## Quick start
 

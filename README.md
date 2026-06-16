@@ -13,8 +13,7 @@
 3. **The contest.** Three experiment runs race on that suite against the *live production prompt*: `baseline` (Sonnet 4.5) passes; candidate A (Sonnet 4.6) passes better and cheaper; candidate B (Haiku 4.5) is cheapest per token but **fails the numeric-accuracy gate (81.8% vs ≥95%)**. Every red cell names the figure that diverged.
 4. **The catch.** Deterministic checks, LLM judges, and human reviewers all converge on the same verdict, so the governance gate stops candidate B before it ships.
 5. **One evidence trail.** All five score-method types, the same vocabulary across production traces and certification runs, on one surface a model-risk officer signs off.
-The companion `ev` kit tells the prompt-loop story; this kit tells the certification story: how a regulated lender proves a change is safe before trusting it.
- 
+
 ---
  
 Seed a Langfuse project (Cloud free tier or self-hosted) with realistic telemetry and pre-built certification objects for the MRM lending-copilot scenario: a commercial lender's analyst copilot over financial filings, certified for any change (model, prompt, parameters) through an automated pipeline: production traces → human-validated ground truth → comparative experiment runs → one evidence trail.

@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal
+from collections.abc import Sequence
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -175,6 +176,28 @@ class Config(BaseModel):
         return self.model_by_role("work")
 
 
-def load_config(path: str | Path) -> Config:
+def _apply_override(raw: dict[str, Any], override: str) -> None:
+    if "=" not in override:
+        raise ValueError(f"--set must be dotted.key=value, got {override!r}")
+    dotted_key, value = override.split("=", 1)
+    keys = [part for part in dotted_key.split(".") if part]
+    if not keys:
+        raise ValueError(f"--set must include a dotted key, got {override!r}")
+
+    cursor: dict[str, Any] = raw
+    for key in keys[:-1]:
+        existing = cursor.get(key)
+        if existing is None:
+            existing = {}
+            cursor[key] = existing
+        if not isinstance(existing, dict):
+            raise ValueError(f"--set cannot descend into non-object key {key!r}")
+        cursor = existing
+    cursor[keys[-1]] = yaml.safe_load(value)
+
+
+def load_config(path: str | Path, overrides: Sequence[str] | None = None) -> Config:
     raw = yaml.safe_load(Path(path).read_text())
+    for override in overrides or ():
+        _apply_override(raw, override)
     return Config.model_validate(raw)

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from jinja2 import Template
 
+from .artifacts import artifact_path
 from .config import Config
 from .state import REPO_ROOT, RunState
 
@@ -67,7 +68,8 @@ def _workbench_runs(cfg: Config) -> list[dict]:
         return []
 
 
-def render_memo(cfg: Config, state: RunState, *, out_path: Path = OUTPUT_PATH) -> Path:
+def render_memo(cfg: Config, state: RunState, *, out_path: Path | None = None) -> Path:
+    out_path = out_path or artifact_path("CERT_MEMO.md")
     template = Template(TEMPLATE_PATH.read_text())
     out_path.write_text(template.render(**build_context(cfg, state)))
     return out_path

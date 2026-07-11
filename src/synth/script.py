@@ -11,6 +11,7 @@ from pathlib import Path
 
 from jinja2 import Template
 
+from .artifacts import artifact_path
 from .config import Config
 from .state import REPO_ROOT, RunState
 
@@ -104,10 +105,17 @@ def build_context(cfg: Config, state: RunState) -> dict:
     }
 
 
-def render_script(cfg: Config, state: RunState, *, out_path: Path = SCRIPT_OUT) -> Path:
+def render_script(cfg: Config, state: RunState, *, out_path: Path | None = None) -> Path:
     ctx = build_context(cfg, state)
+    out_path = out_path or artifact_path("DEMO_SCRIPT.md")
+    map_out = out_path.with_name("DEMO_MAP.md") if out_path != SCRIPT_OUT else MAP_OUT
+    walkthrough_out = (
+        out_path.with_name("DEMO_WALKTHROUGH.html")
+        if out_path != SCRIPT_OUT
+        else WALKTHROUGH_OUT
+    )
     out_path.write_text(Template(SCRIPT_TEMPLATE.read_text()).render(**ctx))
-    MAP_OUT.write_text(Template(MAP_TEMPLATE.read_text()).render(**ctx))
+    map_out.write_text(Template(MAP_TEMPLATE.read_text()).render(**ctx))
     # The branded HTML walkthrough — same context, so it can never drift from the MD.
-    WALKTHROUGH_OUT.write_text(Template(WALKTHROUGH_TEMPLATE.read_text()).render(**ctx))
+    walkthrough_out.write_text(Template(WALKTHROUGH_TEMPLATE.read_text()).render(**ctx))
     return out_path

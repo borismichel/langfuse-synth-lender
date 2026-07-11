@@ -1,0 +1,124 @@
+# usecase.yaml — schema version 1
+# AUTHORITATIVE manifest for langfuse-synth-lender. Owned by the portal contract (CTO).
+# Commit this VERBATIM to the repo root of borismichel/langfuse-synth-lender.
+# Validated against schemas/usecase.schema.json in langfuse-demo-portal.
+schema_version: 1
+slug: lending-copilot-certification
+name: "MRM Lending-Copilot Certification"
+tagline: "Certify a lending analyst copilot against model-risk policy: suites, evaluators, experiment runs, and a validation dossier — the SR 11-7 / EU AI Act story."
+vertical: "Financial Services / Model Risk Management"
+story: |
+  A commercial bank's model-risk function has to certify an LLM analyst copilot
+  before it can read financial statements in production. This kit seeds ~10–12k
+  backdated traces, a 72-item certification suite mapped to an MRM requirements
+  register, three seeded experiment runs across candidate models, and deterministic
+  evaluators — then renders a validation dossier (CERT_MEMO.md). The live analyst
+  copilot, its /dossier, and an alpha /workbench let an SA walk certification end to end.
+
+langfuse_features:
+  - tracing
+  - prompt-management
+  - datasets
+  - experiments
+  - evaluators
+  - scores
+  - annotation-queues
+
+assets:
+  docs:
+    - path: README.md
+      title: "Overview"
+    - path: VERIFICATION.md
+      title: "Verification checks"
+    - path: workbench_requirements.yaml
+      title: "MRM requirements register"
+
+target:
+  project_hint: "demo"
+  supports: [cloud_eu, cloud_us, self_hosted]
+  cloud_notes: "Traces are DERIVED (~10–12k at full scale, ~12k events at the cloud preset). Run plan first; adjust generation.volume.scale so events ≤ 0.8× your tier cap. The certification suite and experiment runs are preserved at every scale."
+
+base_config:
+  # Full self-hosted preset vs. the Cloud-free-tier preset. Overrides ride --set on top.
+  default: config/cloud-demo.yaml
+  self_hosted: config/demo.yaml
+  cloud_eu: config/cloud-demo.yaml
+  cloud_us: config/cloud-demo.yaml
+
+config_schema:
+  # v1 contract: each property NAME is a dotted kit-config key applied as `--set name=value`.
+  type: object
+  properties:
+    generation.volume.scale:
+      type: number
+      default: 0.5
+      minimum: 0.1
+      maximum: 1.5
+      title: "Volume scale"
+      description: "The single volume scaler. 0.5 is Cloud-free-tier safe; 1.0 is the full self-hosted story. Golden suite/experiments/queue are not scaled."
+    generation.window_days:
+      type: integer
+      default: 14
+      enum: [14, 30]
+      title: "Backfill window (days)"
+  required: []
+
+pipeline:
+  - id: probe
+    run: "synth probe --config {config}"
+    when: "host_kind != self_hosted"
+    fatal: true
+  - id: plan
+    run: "synth plan --config {config}"
+    parse:
+      # Lender `plan` prints state.summary as JSON; total_traces is the headline count.
+      event_count: 'regex:"total_traces":\s*(\d+)'
+    gate: "confirm"
+  - id: seed
+    run: "synth seed --config {config}"
+    resumable: "synth import-spool --config {config}"
+    timeout_minutes: 90
+  - id: evaluators
+    # Provisions the deterministic + LLM evaluators the certification suite links to.
+    run: "synth evaluators --config {config}"
+    fatal: false
+  - id: verify
+    run: "synth verify --config {config}"
+    fatal: true
+  - id: memo
+    # Renders CERT_MEMO.md (the validation dossier) from post-seed run state.
+    run: "synth memo --config {config}"
+    fatal: false
+
+artifacts:
+  - path: DEMO_SCRIPT.md
+    render: markdown
+    title: "Demo script"
+  - path: DEMO_MAP.md
+    render: markdown
+    title: "Demo map (checklist → UI path)"
+  - path: CERT_MEMO.md
+    render: markdown
+    title: "Certification dossier"
+  - path: DEMO_WALKTHROUGH.html
+    render: html
+    title: "Branded walkthrough"
+
+live_components:
+  - name: playground
+    # One server serves the analyst copilot (/), the /dossier, and the alpha /workbench route.
+    description: "Live analyst copilot + /dossier validation dossier. Includes the ALPHA /workbench certification surface (coverage matrix + evaluator runner) — flagged alpha, not GA."
+    command: "synth playground --config {config} --host 0.0.0.0 --port 8080"
+    port: 8080
+    requires_secrets: [LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, ANTHROPIC_API_KEY]
+    alpha: false
+    default_ttl_hours: 168
+    max_ttl_hours: 720
+    health_path: "/"
+
+teardown:
+  note: |
+    Langfuse ingestion is append-only; teardown is project-level. Delete the Langfuse
+    project (or create a fresh one) and re-deploy. The portal only marks the deployment
+    torn down and stops any live instances. Re-seeding the same project is safe (deterministic
+    upsert), but changing coverage requires a fresh project.

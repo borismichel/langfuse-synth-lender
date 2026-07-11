@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+from typing import Annotated
 
 import typer
 from dotenv import load_dotenv
@@ -23,19 +24,27 @@ app = typer.Typer(add_completion=False,
                   help="Langfuse demo-data synthesiser — regulated-lender model-certification scenario.")
 
 DEFAULT_CONFIG = "config/demo.yaml"
+SetOverrides = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--set",
+        help="Override config with dotted.key=value. Repeatable; values are parsed as YAML.",
+    ),
+]
 
 
-def _load(config: str):
+def _load(config: str, set_overrides: list[str] | None = None):
     load_dotenv()  # pick up .env
-    return load_config(config)
+    return load_config(config, overrides=set_overrides)
 
 
 @app.command()
-def plan(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c")):
+def plan(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
+         set_overrides: SetOverrides = None):
     """Dry run: print volumes, suites, flagged cases and the seeded-run summary. No network."""
     from .seed.run import run_seed
 
-    cfg = _load(config)
+    cfg = _load(config, set_overrides)
     state = run_seed(cfg, dry_run=True, persist=False, log=lambda m: typer.echo(m))
     typer.echo("\n— PLAN SUMMARY —")
     typer.echo(json.dumps(state.summary, indent=2))
@@ -46,14 +55,15 @@ def seed(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
          dry_run: bool = typer.Option(False, "--dry-run", help="Build everything but send nothing."),
          spool: str = typer.Option(None, "--spool", help="NDJSON spool path (default .synth_spool/events.ndjson)."),
          no_import: bool = typer.Option(False, "--no-import",
-                                        help="Write the spool to disk but skip the upload (resume with `synth import-spool`).")):
+                                        help="Write the spool to disk but skip the upload (resume with `synth import-spool`)."),
+         set_overrides: SetOverrides = None):
     """Generate the deterministic caseload + certification record, spool to disk, batch-import
     backdated, register the pinned prompt, create the suites + seeded runs + annotation
     queues, and emit DEMO_SCRIPT.md."""
     from .script import render_script
     from .seed.run import run_seed
 
-    cfg = _load(config)
+    cfg = _load(config, set_overrides)
     state = run_seed(cfg, dry_run=dry_run, spool_path=spool, do_import=not no_import,
                      log=lambda m: typer.echo(m))
     render_script(cfg, state)
@@ -71,11 +81,12 @@ def import_spool(spool: str = typer.Argument(None, help="Spool file to import (d
 
 
 @app.command()
-def verify(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c")):
+def verify(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
+           set_overrides: SetOverrides = None):
     """Query the data back via the API and assert the golden path."""
     from .verify import run_verify
 
-    cfg = _load(config)
+    cfg = _load(config, set_overrides)
     if not RunState.exists():
         typer.echo("No .synth_state.json — run `synth seed` first.", err=True)
         raise typer.Exit(code=2)
@@ -111,13 +122,14 @@ def certify(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
 
 
 @app.command()
-def probe(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c")):
+def probe(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
+          set_overrides: SetOverrides = None):
     """Verify EARLY that backdated ingestion behaves on this host (spec v2 §3):
     ingest ONE trace with a historical timestamp, query it back, and FAIL LOUDLY if
     the timestamp was dropped or normalised. Run before any bulk seed on Cloud."""
     from .probe import run_probe
 
-    cfg = _load(config)
+    cfg = _load(config, set_overrides)
     ok = run_probe(cfg, log=lambda m: typer.echo(m))
     raise typer.Exit(code=0 if ok else 1)
 
@@ -136,7 +148,8 @@ def enrich(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
 
 
 @app.command()
-def evaluators(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c")):
+def evaluators(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
+               set_overrides: SetOverrides = None):
     """Populate the project's managed LLM-judge evaluators (groundedness,
     citation_coverage) + scope them to the suite — without re-seeding. Needs the
     unstable evaluator API (Cloud / newer self-hosted) and an LLM connection: set
@@ -144,16 +157,17 @@ def evaluators(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c")):
     project settings first."""
     from .seed.run import _populate_managed_evaluators
 
-    cfg = _load(config)
+    cfg = _load(config, set_overrides)
     _populate_managed_evaluators(cfg, log=lambda m: typer.echo(m))
 
 
 @app.command()
-def memo(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c")):
+def memo(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
+         set_overrides: SetOverrides = None):
     """Render CERT_MEMO.md — the model-validation dossier — from run state."""
     from .memo import render_memo
 
-    cfg = _load(config)
+    cfg = _load(config, set_overrides)
     if not RunState.exists():
         typer.echo("No .synth_state.json — run `synth seed` first.", err=True)
         raise typer.Exit(code=2)

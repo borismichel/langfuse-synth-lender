@@ -112,6 +112,17 @@ live_components:
     port: 8080
     requires_secrets: [LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, ANTHROPIC_API_KEY]
     alpha: false
+    # One container, three in-app routes (§6 / E2 ruling: /workbench is a route,
+    # not a separate container). /workbench is flagged alpha in the manifest — the
+    # portal renders its badge and may gate it independently of the GA component.
+    routes:
+      - path: /
+        title: "Analyst copilot"
+      - path: /dossier
+        title: "Validation dossier"
+      - path: /workbench
+        title: "Certification workbench"
+        alpha: true
     default_ttl_hours: 168
     max_ttl_hours: 720
     health_path: "/"

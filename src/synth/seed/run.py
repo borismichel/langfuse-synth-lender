@@ -273,7 +273,7 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
     # already present (deterministic, same score vocabulary), so the Evaluators page
     # shows the judges as governed objects with matching historical scores.
     conn_ok, conn_msg = ensure_llm_connection(cfg)
-    if not conn_ok and "no ANTHROPIC_API_KEY" in conn_msg:
+    if not conn_ok and "in env" in conn_msg:
         # No key in env, but a connection may already be configured in project settings.
         try:
             conns = requests.get(f"{base.rstrip('/')}/api/public/llm-connections",

@@ -32,18 +32,18 @@ _PROMPTS = {
 
 
 def run_enrich(cfg: Config, n: int = 50, log: Callable[[str], None] = print) -> Path:
-    from .lfclient import get_anthropic
+    from .llm import get_llm
 
-    anth = get_anthropic()
-    model = cfg.certification.candidate_b_model  # the cheap tier
+    llm = get_llm(cfg.certification.candidate_b_model)  # the cheap tier
+    model = llm.model
     per_kind = max(3, n // len(_PROMPTS))
     out: dict[str, list[str]] = {}
     for kind, prompt in _PROMPTS.items():
         log(f"· generating {per_kind} {kind!r} phrasings with {model} …")
-        resp = anth.messages.create(
-            model=model, max_tokens=1500, temperature=0.9,
-            messages=[{"role": "user", "content": prompt.format(n=per_kind)}])
-        text = "".join(b.text for b in resp.content if b.type == "text")
+        result = llm.complete(
+            system="", messages=[{"role": "user", "content": prompt.format(n=per_kind)}],
+            temperature=0.9, max_tokens=1500)
+        text = result.text
         lines = [ln.strip("-• ").strip() for ln in text.splitlines() if ln.strip()]
         keep = [ln for ln in lines if "{" in ln or kind == "declined"]
         out[kind] = keep[:per_kind]

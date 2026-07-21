@@ -38,6 +38,18 @@ target:
   supports: [cloud_eu, cloud_us, self_hosted]
   cloud_notes: "Traces are DERIVED (~10–12k at full scale, ~12k events at the cloud preset). Run plan first; adjust generation.volume.scale so events ≤ 0.8× your tier cap. The certification suite and experiment runs are preserved at every scale."
 
+llm:
+  # Demo-time model calls (live playground + certify / workbench runs + the managed
+  # LLM-as-judge connection) route through the kit's provider layer (src/synth/llm.py).
+  # First provider = deploy-time default. The portal injects the selected provider's key
+  # via the LLM_API_KEY sentinel below, plus LLM_PROVIDER and (for OpenAI) LLM_MODEL.
+  providers: [anthropic, openai]
+  models:
+    # Anthropic intentionally omitted: no LLM_MODEL is injected, so the kit keeps its
+    # built-in candidate models — the multi-candidate certification comparison stays
+    # byte-for-byte unchanged. OpenAI routes to a single pinned model.
+    openai: gpt-4o
+
 base_config:
   # Full self-hosted preset vs. the Cloud-free-tier preset. Overrides ride --set on top.
   default: config/cloud-demo.yaml
@@ -110,7 +122,7 @@ live_components:
     description: "Live analyst copilot + /dossier validation dossier. Includes the ALPHA /workbench certification surface (coverage matrix + evaluator runner) — flagged alpha, not GA."
     command: "synth playground --config {config} --host 0.0.0.0 --port 8080"
     port: 8080
-    requires_secrets: [LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, ANTHROPIC_API_KEY]
+    requires_secrets: [LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LLM_API_KEY]
     alpha: false
     # One container, three in-app routes (§6 / E2 ruling: /workbench is a route,
     # not a separate container). /workbench is flagged alpha in the manifest — the

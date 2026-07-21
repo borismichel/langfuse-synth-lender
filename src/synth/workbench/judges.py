@@ -15,6 +15,7 @@ import os
 import requests
 
 from ..config import Config
+from ..llm import API_KEY_ENV, resolve_model, resolve_provider
 from ..script import _CITATION_JUDGE, _GROUNDEDNESS_JUDGE
 
 # The two LLM-as-judge evaluators, named to match the score configs the rest of the
@@ -167,34 +168,40 @@ def ensure_code_evaluator(cfg: Config, name: str, source: str) -> tuple[dict | N
     return None, f"{resp.status_code}: {resp.text[:300]}"
 
 
-def _looks_like_real_anthropic_key(key: str) -> bool:
-    """A real Anthropic key is ``sk-ant-…`` and well over 40 chars. Guards against the
-    ``.env`` placeholder (``sk-ant-...``) being upserted — which would create/CLOBBER the
-    project's LLM connection with an invalid secret (preflight then 401s on the judges)."""
-    return key.startswith("sk-ant-") and len(key) > 40
+# Real API-key prefixes per provider — guards against a ``.env`` placeholder being
+# upserted (which would create/CLOBBER the project's LLM connection with an invalid
+# secret: preflight then 401s on the judges).
+_KEY_PREFIX = {"anthropic": "sk-ant-", "openai": "sk-"}
+
+
+def _looks_like_real_key(provider: str, key: str) -> bool:
+    """A real key starts with the provider prefix and is well over 40 chars."""
+    return key.startswith(_KEY_PREFIX.get(provider, "sk-")) and len(key) > 40
 
 
 def ensure_llm_connection(cfg: Config) -> tuple[bool, str]:
-    """Upsert an LLM connection so the managed judges have a model to run on. Uses
-    ``ANTHROPIC_API_KEY`` from env (matches the judge_model provider). Returns
+    """Upsert an LLM connection so the managed judges have a model to run on. Uses the
+    selected provider's key from env (``LLM_PROVIDER``; default Anthropic). Returns
     ``(ok, message)``. Without a *real* key, the judges can't be created — the caller
     skips, but any connection already configured in the project is left untouched."""
     base = cfg.target.base_url
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    provider = resolve_provider()
+    env_var = API_KEY_ENV[provider]
+    key = os.environ.get(env_var, "")
     if not key:
-        return False, "no ANTHROPIC_API_KEY in env — add an LLM connection in project settings"
-    if not _looks_like_real_anthropic_key(key):
-        return False, ("ANTHROPIC_API_KEY looks like a placeholder — NOT upserting (would "
+        return False, f"no {env_var} in env — add an LLM connection in project settings"
+    if not _looks_like_real_key(provider, key):
+        return False, (f"{env_var} looks like a placeholder — NOT upserting (would "
                        "clobber a real connection). Paste a real key in .env or add the "
                        "connection in project settings, then re-run `synth evaluators`")
-    body = {"provider": "anthropic", "adapter": "anthropic", "secretKey": key,
+    body = {"provider": provider, "adapter": provider, "secretKey": key,
             "withDefaultModels": True}
     resp, err = _request("PUT", f"{base.rstrip('/')}/api/public/llm-connections",
                          json=body, auth=_auth())
     if resp is None:
         return False, err
     if resp.status_code in (200, 201):
-        return True, "anthropic LLM connection upserted"
+        return True, f"{provider} LLM connection upserted"
     if resp.status_code == 404:
         return False, "llm-connections API not available on this server"
     return False, f"{resp.status_code}: {resp.text[:200]}"
@@ -213,20 +220,32 @@ def list_judges(base: str) -> tuple[list[dict], bool]:
         return [], False
 
 
-def _judge_provider(base: str) -> str:
+def _judge_provider(base: str, provider: str) -> str:
     """The ``modelConfig.provider`` must match an existing LLM connection's ``provider``
     value EXACTLY, including casing — the UI registers Anthropic as ``"Anthropic"``, so
     sending ``"anthropic"`` yields a 422 "No valid LLM model found". Read the connection
-    list and return the provider whose adapter is anthropic (fallback ``"Anthropic"``)."""
+    list and return the provider whose adapter matches ``provider`` (fallback: the
+    provider id capitalised, e.g. ``"Anthropic"`` / ``"Openai"``)."""
     try:
         conns = requests.get(f"{base.rstrip('/')}/api/public/llm-connections",
                              params={"limit": 50}, auth=_auth(), timeout=12).json().get("data", [])
     except requests.RequestException:
         conns = []
     for c in conns:
-        if c.get("adapter") == "anthropic" and c.get("provider"):
+        if c.get("adapter") == provider and c.get("provider"):
             return c["provider"]
-    return "Anthropic"
+    return provider.capitalize()
+
+
+def _judge_model_config(base: str, cfg: Config) -> dict:
+    """The managed judge's provider + model for the selected LLM provider.
+
+    Anthropic (the default) keeps ``cfg.certification.judge_model`` exactly, so existing
+    deployments are unchanged; any other provider resolves its own judge model
+    (``LLM_MODEL`` if set, else the provider default)."""
+    provider = resolve_provider()
+    model = cfg.certification.judge_model if provider == "anthropic" else resolve_model(provider)
+    return {"provider": _judge_provider(base, provider), "model": model}
 
 
 def ensure_judge(cfg: Config, name: str) -> tuple[dict | None, str]:
@@ -250,7 +269,7 @@ def ensure_judge(cfg: Config, name: str) -> tuple[dict | None, str]:
             "reasoning": {"description": tpl["reasoning"]},
             "score": {"description": tpl["score"]},
         },
-        "modelConfig": {"provider": _judge_provider(base), "model": cfg.certification.judge_model},
+        "modelConfig": _judge_model_config(base, cfg),
     }
     resp, err = _request("POST", f"{base.rstrip('/')}/api/public/unstable/evaluators",
                          json=body, auth=_auth())

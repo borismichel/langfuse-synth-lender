@@ -49,18 +49,18 @@ def _scenario_of(meta: dict) -> str:
     return (meta.get("scenario") or meta.get("slice") or "numeric_lookup")
 
 
-def _make_task(lf, anth, release: dict):
+def _make_task(lf, llm, release: dict):
     tasks = [t for t in discover_tasks() if not t.error]
     task_fn = tasks[0].fn if tasks else None
 
     def task(*args, **kwargs):
         item = kwargs.get("item") if "item" in kwargs else (args[0] if args else None)
         if task_fn is not None:
-            return task_fn(item, model=release["model"], lf=lf, anth=anth,
+            return task_fn(item, model=release["model"], lf=lf, llm=llm,
                            prompt_name=release["prompt_name"])
         from ..agent import answer
 
-        return answer(item.input, release["model"], live=True, lf=lf, anth=anth,
+        return answer(item.input, release["model"], live=True, lf=lf, llm=llm,
                       prompt_name=release["prompt_name"]).model_dump()
 
     return task
@@ -83,10 +83,10 @@ def _execute(cfg: Config, spec: ExperimentSpec, run_id: str) -> None:
                        spec=spec.model_dump(), release=spec.release.model_dump(),
                        evaluator_shas=shas, started=started)
     try:
-        from ..lfclient import get_anthropic, get_langfuse
+        from ..lfclient import get_langfuse
+        from ..llm import get_llm
 
         lf = get_langfuse(cfg)
-        anth = get_anthropic()
 
         # resolve + pin the prompt version for the metadata record
         rel = spec.release
@@ -97,7 +97,7 @@ def _execute(cfg: Config, spec: ExperimentSpec, run_id: str) -> None:
         release = {**rel.model_dump(), "prompt_version": prompt_version}
         run.release = release
 
-        task = _make_task(lf, anth, release)
+        task = _make_task(lf, get_llm(release["model"]), release)
         evaluators = _wrap_evaluators(spec.evaluators)
         links = Links.from_cfg(cfg)
 

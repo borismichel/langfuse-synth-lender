@@ -6,7 +6,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "langfuse>=4.0,<5",      # v4 Python SDK (run_experiment, prompts, datasets, api client)
-    "anthropic>=0.40.0",     # live model calls at demo time (the certification run)
+    "anthropic>=0.40.0",     # live model calls at demo time — Anthropic provider (default)
+    "openai>=1.40.0",        # live model calls at demo time — OpenAI provider (LAN-378)
     "pydantic>=2.6",
     "pyyaml>=6.0",
     "typer>=0.12",

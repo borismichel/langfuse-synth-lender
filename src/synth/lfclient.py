@@ -21,10 +21,3 @@ def get_langfuse(cfg: Config):
         public_key=os.environ.get("LANGFUSE_PUBLIC_KEY"),
         secret_key=os.environ.get("LANGFUSE_SECRET_KEY"),
     )
-
-
-def get_anthropic():
-    """Anthropic client for the demo-time experiment task (not used in the seed path)."""
-    from anthropic import Anthropic
-
-    return Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))

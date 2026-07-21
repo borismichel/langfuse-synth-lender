@@ -51,11 +51,13 @@ def _evaluators():
 
 def certify(cfg: Config, model: str, *, run_name: str | None = None,
             log: Callable[[str], None] = print) -> CertifyResult:
-    from ..lfclient import get_anthropic, get_langfuse
+    from ..lfclient import get_langfuse
+    from ..llm import get_llm
 
     cert = cfg.certification
     lf = get_langfuse(cfg)
-    anth = get_anthropic()
+    llm = get_llm(model)
+    model = llm.model  # the model actually resolved for the selected provider
 
     prompt = lf.get_prompt(cert.prompt_name, label="production", type="chat", cache_ttl_seconds=0)
     pver = getattr(prompt, "version", "?")
@@ -67,7 +69,7 @@ def certify(cfg: Config, model: str, *, run_name: str | None = None,
 
     def task(*args, **kwargs):
         item = kwargs.get("item") if "item" in kwargs else (args[0] if args else None)
-        got = answer(item.input, model, live=True, lf=lf, anth=anth,
+        got = answer(item.input, model, live=True, lf=lf, llm=llm,
                      prompt_name=cert.prompt_name)
         return got.model_dump()
 

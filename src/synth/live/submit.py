@@ -23,8 +23,8 @@ from ..seed.ingest import Ingestor, assert_demo_project
 from ..seed.traces import TraceSpec, build_trace_events
 
 
-def _live_answer(cfg: Config, lf, anth, q: AnalystQuestion, model: str) -> tuple:
-    """Compile the pinned prompt, call ``model``, parse. Returns
+def _live_answer(cfg: Config, lf, llm, q: AnalystQuestion) -> tuple:
+    """Compile the pinned prompt, call the resolved model, parse. Returns
     ``(answer, in_tokens, out_tokens, prompt_version, latency_ms, messages)``."""
     name = cfg.certification.prompt_name
     prompt = lf.get_prompt(name, label="production", type="chat", cache_ttl_seconds=0)
@@ -34,12 +34,10 @@ def _live_answer(cfg: Config, lf, anth, q: AnalystQuestion, model: str) -> tuple
     turns = [m for m in messages if m.get("role") != "system"] or \
         [{"role": "user", "content": question_json}]
     t0 = time.monotonic()
-    resp = anth.messages.create(model=model, system=system, messages=turns,
-                                temperature=0, max_tokens=700)
+    result = llm.complete(system=system, messages=turns, temperature=0, max_tokens=700)
     latency_ms = int((time.monotonic() - t0) * 1000)
-    text = "".join(b.text for b in resp.content if b.type == "text")
     chat = [{"role": m.get("role"), "content": m.get("content")} for m in messages]
-    return (parse_answer(text), resp.usage.input_tokens, resp.usage.output_tokens,
+    return (parse_answer(result.text), result.input_tokens, result.output_tokens,
             getattr(prompt, "version", None), latency_ms, chat)
 
 
@@ -48,15 +46,16 @@ def submit(cfg: Config, question: AnalystQuestion, model: str | None = None,
     """Ask one live question and emit its trace. Returns the answer, the deterministic
     ground truth (for contrast), the prompt version, and a deep link to the trace."""
     from ..agent import answer_deterministic
-    from ..lfclient import get_anthropic, get_langfuse
+    from ..lfclient import get_langfuse
+    from ..llm import get_llm
 
     base_url = cfg.target.base_url
     project_id, project_name = assert_demo_project(base_url, cfg.target.project_hint)
-    model = model or cfg.certification.incumbent_model
 
     lf = get_langfuse(cfg)
-    anth = get_anthropic()
-    got, in_tok, out_tok, version, latency_ms, messages = _live_answer(cfg, lf, anth, question, model)
+    llm = get_llm(model or cfg.certification.incumbent_model)
+    model = llm.model  # the model actually resolved for the selected provider
+    got, in_tok, out_tok, version, latency_ms, messages = _live_answer(cfg, lf, llm, question)
     log(f"· {model} (prompt v{version}) answered: {got.answer_type} — {got.answer[:90]} ({latency_ms}ms)")
 
     now = datetime.now(timezone.utc)

@@ -11,7 +11,8 @@ file per check). The contract is the SDK evaluator signature:
 
 Tasks the same way in ``workbench_tasks/``:
 
-    def task(item, *, model, lf, anth): -> dict   # what run_experiment executes
+    def task(item, *, model, lf, llm): -> dict   # what run_experiment executes
+                                                  # (`llm` is a synth.llm.LLMClient)
 
 Adding code through the workbench runs a three-stage acceptance pipeline:
 ``compile()`` → AST contract check (the function exists with the keyword-only

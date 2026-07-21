@@ -15,7 +15,7 @@ Two execution paths, identical contract:
   flagged cases and the seeded baseline / failed-cert runs — so every red cell in the
   comparison view is exactly the arithmetic this module encodes.
 
-- **Live (demo path).** ``answer(q, model, live=True, lf=..., anth=...)`` fetches the
+- **Live (demo path).** ``answer(q, model, live=True, lf=..., llm=...)`` fetches the
   pinned ``production`` prompt from Langfuse, calls the *requested model* at
   temperature 0, and parses the structured CopilotAnswer. This is the certification
   task `synth certify --model X` runs — same code for every candidate, model swapped
@@ -332,7 +332,7 @@ def answer_deterministic(question: "AnalystQuestion | dict",
 # ---------------------------------------------------------------------------
 # Live path — pinned production prompt + the requested model (demo time)
 # ---------------------------------------------------------------------------
-def _answer_live(q: AnalystQuestion, model: str, *, lf, anth, prompt_name: str) -> CopilotAnswer:
+def _answer_live(q: AnalystQuestion, model: str, *, lf, llm, prompt_name: str) -> CopilotAnswer:
     # cache_ttl_seconds=0: always pull the current `production` version, so the pinned
     # prompt version recorded on the run is exactly what ran.
     from .content import user_turn
@@ -349,16 +349,14 @@ def _answer_live(q: AnalystQuestion, model: str, *, lf, anth, prompt_name: str) 
 
     chat = [{"role": m.get("role"), "content": m.get("content")} for m in messages]
     with lf.start_as_current_observation(
-        as_type="generation", name="answer", model=model, input=chat,
+        as_type="generation", name="answer", model=llm.model, input=chat,
         model_parameters={"temperature": 0, "max_tokens": 700}, prompt=prompt,
     ) as gen:
-        resp = anth.messages.create(model=model, system=system, messages=turns,
-                                    temperature=0, max_tokens=700)
-        text = "".join(b.text for b in resp.content if b.type == "text")
-        ans = parse_answer(text)
+        result = llm.complete(system=system, messages=turns, temperature=0, max_tokens=700)
+        ans = parse_answer(result.text)
         gen.update(output=ans.model_dump(),
-                   usage_details={"input": resp.usage.input_tokens,
-                                  "output": resp.usage.output_tokens})
+                   usage_details={"input": result.input_tokens,
+                                  "output": result.output_tokens})
     return ans
 
 
@@ -397,7 +395,7 @@ def answer(
     *,
     live: bool = False,
     lf=None,
-    anth=None,
+    llm=None,
     prompt_name: str = "analyst-copilot",
     error_mode: str | None = None,
 ) -> CopilotAnswer:
@@ -405,12 +403,13 @@ def answer(
 
     Default (seed path) is deterministic and model-free (``model`` is recorded, not
     called); ``error_mode`` injects a documented failure pattern. Pass ``live=True``
-    with a Langfuse client (``lf``) and Anthropic client (``anth``) to run the real
-    agent path used by ``synth certify``.
+    with a Langfuse client (``lf``) and an :class:`~synth.llm.LLMClient` (``llm``) to
+    run the real agent path used by ``synth certify``; the client owns the resolved
+    provider and model.
     """
     q = AnalystQuestion.from_input(question)
     if live:
-        if lf is None or anth is None:
-            raise ValueError("live=True requires both lf (Langfuse) and anth (Anthropic) clients")
-        return _answer_live(q, model, lf=lf, anth=anth, prompt_name=prompt_name)
+        if lf is None or llm is None:
+            raise ValueError("live=True requires both lf (Langfuse) and llm (LLMClient) clients")
+        return _answer_live(q, model, lf=lf, llm=llm, prompt_name=prompt_name)
     return answer_deterministic(q, error_mode=error_mode)

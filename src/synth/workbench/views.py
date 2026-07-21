@@ -24,6 +24,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from ..config import Config
+from ..live.paths import local
 from ..live.theme import page
 from . import runner as runner_mod
 from .catalog import Catalog, fetch_catalog
@@ -72,8 +73,8 @@ def _nav(active: str = "") -> str:
     parts = []
     for label, href in links:
         style = "color:var(--text-primary);font-weight:600" if label == active else ""
-        parts.append(f"<a href='{href}' style='{style}'>{label}</a>")
-    parts.append("<a href='/'>copilot</a><a href='/dossier'>dossier</a>")
+        parts.append(f"<a href='{local(href)}' style='{style}'>{label}</a>")
+    parts.append(f"<a href='{local('/')}'>copilot</a><a href='{local('/dossier')}'>dossier</a>")
     return ("<div style='display:flex;gap:16px;font-family:var(--font-mono);font-size:12px;"
             "margin:0 0 22px'>" + "".join(parts) + "</div>")
 
@@ -133,7 +134,7 @@ def build_router(cfg: Config):
         judge_note = ("managed-judge API available" if cat.judges_api
                       else "managed judges via UI (older server)")
         run_rows = "".join(
-            f"<div class='kv'><span><a href='/workbench/runs/{_e(x.run_id)}'>"
+            f"<div class='kv'><span><a href='{local('/workbench/runs/' + _e(x.run_id))}'>"
             f"<code>{_e(x.run_id)}</code></a> · {_e(x.spec_ref)}</span>"
             f"<span>{_chip(x.state, 'green' if x.ok else ('red' if x.state in ('done', 'error') else ''))}"
             f"{_chip('signed', 'green') if x.signoff else ''}</span></div>"
@@ -163,7 +164,7 @@ def build_router(cfg: Config):
           text-transform:uppercase;letter-spacing:.1em;color:var(--text-tertiary)'>Evaluator code registry</div>{ev_rows}</div>
         <div class='card'><div class='klabel' style='font-family:var(--font-mono);font-size:10.5px;
           text-transform:uppercase;letter-spacing:.1em;color:var(--text-tertiary)'>Recent runs</div>{run_rows}</div>
-        <form method='post' action='/workbench/role' class='ghost card'>
+        <form method='post' action='{local('/workbench/role')}' class='ghost card'>
           <label>Acting role (demo switcher — Builder designs, Approver signs)</label>
           <select name='role'>{role_opts}</select>
           <button type='submit'>Switch role</button>
@@ -172,7 +173,7 @@ def build_router(cfg: Config):
 
     @r.post("/role")
     def set_role(role: str = Form("builder")):
-        resp = RedirectResponse("/workbench", status_code=303)
+        resp = RedirectResponse(local("/workbench"), status_code=303)
         resp.set_cookie(ROLE_COOKIE, role if role in ROLES else "builder")
         return resp
 
@@ -230,7 +231,7 @@ def build_router(cfg: Config):
         <p class='sub'>The spec is the auditable unit: release × suites × evaluators × gates.
         Saved specs are versioned and hashed; the hash rides in every run's metadata.</p>
         {_offline_banner(cat)}{notice}
-        <form method='post' action='/workbench/specs'>
+        <form method='post' action='{local('/workbench/specs')}'>
           <div class='card'>
             <h2>1 · Release under test</h2>
             <label>Experiment name</label>
@@ -273,7 +274,7 @@ def build_router(cfg: Config):
           <p class='sub' style='margin-bottom:8px'>Scaffolded to the Langfuse v4 evaluator contract.
           Acceptance: compile → signature check → smoke-run on a sample item. Accepted code is
           committed to <code>workbench_evaluators/</code> and SHA-fingerprinted.</p>
-          <form method='post' action='/workbench/evaluators'>
+          <form method='post' action='{local('/workbench/evaluators')}'>
             <label>Filename</label>
             <input name='filename' placeholder='my_check.py' required>
             <label>Code</label>
@@ -297,7 +298,7 @@ def build_router(cfg: Config):
         for name in JUDGE_TEMPLATES:
             status = (_chip("configured", "green") if name in existing
                       else f"<button type='submit' name='judge' value='{_e(name)}' "
-                           f"formaction='/workbench/judges' formmethod='post'>create + scope to suites</button>")
+                           f"formaction='{local('/workbench/judges')}' formmethod='post'>create + scope to suites</button>")
             rows.append(f"<div class='kv'><span><code>{_e(name)}</code> (managed LLM judge)</span>"
                         f"<span>{status}</span></div>")
         return ("<label style='margin-top:18px'>Managed LLM judges (created via API, scoped to "
@@ -308,10 +309,10 @@ def build_router(cfg: Config):
     def add_evaluator(filename: str = Form(...), code: str = Form(...)):
         reg, errors = save_evaluator(cfg, filename, code)
         if errors:
-            return RedirectResponse(f"/workbench/designer?err={'; '.join(errors)[:300]}",
+            return RedirectResponse(local(f"/workbench/designer?err={'; '.join(errors)[:300]}"),
                                     status_code=303)
         return RedirectResponse(
-            f"/workbench/designer?ok=evaluator {reg.name} added (sha {reg.sha256[:12]}…)",
+            local(f"/workbench/designer?ok=evaluator {reg.name} added (sha {reg.sha256[:12]}…)"),
             status_code=303)
 
     @r.post("/judges")
@@ -323,12 +324,12 @@ def build_router(cfg: Config):
         cat = _catalog(cfg, force=True)
         judge, err = ensure_judge(cfg, name)
         if err:
-            return RedirectResponse(f"/workbench/designer?err={err[:300]}", status_code=303)
+            return RedirectResponse(local(f"/workbench/designer?err={err[:300]}"), status_code=303)
         ds_ids = [d.id for d in cat.datasets if d.id]
         _rule, rerr = ensure_rule(cfg, judge, ds_ids)
         _catalog(cfg, force=True)
         msg = f"judge {name} configured" + (f"; rule: {rerr[:200]}" if rerr else " + scoped to suites")
-        return RedirectResponse(f"/workbench/designer?ok={msg}", status_code=303)
+        return RedirectResponse(local(f"/workbench/designer?ok={msg}"), status_code=303)
 
     # -- specs ----------------------------------------------------------------
     @r.post("/specs")
@@ -340,7 +341,7 @@ def build_router(cfg: Config):
         for ds in form.getlist("datasets"):
             targets.append(Target(dataset_name=ds, slices=form.getlist(f"slices__{ds}")))
         if not targets:
-            return RedirectResponse("/workbench/designer?err=pick at least one suite",
+            return RedirectResponse(local("/workbench/designer?err=pick at least one suite"),
                                     status_code=303)
         gates = Gates(threshold=float(form.get("threshold") or 0.98),
                       slice_overrides={"out_of_scope":
@@ -359,12 +360,12 @@ def build_router(cfg: Config):
             created_by=_role_of(request),
             notes=form.get("notes") or "")
         spec = save_spec(cfg, spec)
-        return RedirectResponse(f"/workbench/specs/{spec.ref}", status_code=303)
+        return RedirectResponse(local(f"/workbench/specs/{spec.ref}"), status_code=303)
 
     @r.get("/specs", response_class=HTMLResponse)
     def specs_list() -> str:
         rows = "".join(
-            f"<div class='kv'><span><a href='/workbench/specs/{_e(s.ref)}'><code>{_e(s.ref)}</code></a>"
+            f"<div class='kv'><span><a href='{local('/workbench/specs/' + _e(s.ref))}'><code>{_e(s.ref)}</code></a>"
             f" · {_e(s.release.model)}</span>"
             f"<span style='font-family:var(--font-mono);font-size:11px'>hash {s.spec_hash[:12]}…</span></div>"
             for s in list_specs(cfg)) or "<div class='kv'><span>no specs yet</span><span>—</span></div>"
@@ -384,7 +385,7 @@ def build_router(cfg: Config):
         body = f"""{_eyebrow(cfg, 'experiment spec')}{_nav('specs')}
         <h1><span class='mark'>{_e(spec.ref)}</span></h1>
         <p class='sub'>sha256 <code>{spec.spec_hash}</code></p>{notice}
-        <form method='post' action='/workbench/runs'>
+        <form method='post' action='{local('/workbench/runs')}'>
           <input type='hidden' name='spec_ref' value='{_e(spec.ref)}'>
           <button type='submit'>Run this experiment →</button>
         </form>
@@ -396,7 +397,7 @@ def build_router(cfg: Config):
     def trigger(spec_ref: str = Form(...)):
         spec = load_spec(cfg, spec_ref)
         if spec is None:
-            return RedirectResponse("/workbench/specs", status_code=303)
+            return RedirectResponse(local("/workbench/specs"), status_code=303)
         if spec.freeze_dataset_version == "(at-run-time)":
             from datetime import datetime, timezone
 
@@ -405,8 +406,8 @@ def build_router(cfg: Config):
                 .strftime("%Y-%m-%dT%H:%M:%SZ")})
         run_id, err = runner_mod.start_run(cfg, spec)
         if err:
-            return RedirectResponse(f"/workbench/specs/{spec_ref}?err={err}", status_code=303)
-        return RedirectResponse(f"/workbench/runs/{run_id}", status_code=303)
+            return RedirectResponse(local(f"/workbench/specs/{spec_ref}?err={err}"), status_code=303)
+        return RedirectResponse(local(f"/workbench/runs/{run_id}"), status_code=303)
 
     @r.get("/runs", response_class=HTMLResponse)
     def runs_list() -> str:
@@ -415,7 +416,7 @@ def build_router(cfg: Config):
             gate = ("—" if x.state != "done" else
                     _chip("CERTIFIED", "green") if x.ok else _chip("REJECTED", "red"))
             rows.append(
-                f"<div class='kv'><span><a href='/workbench/runs/{_e(x.run_id)}'>"
+                f"<div class='kv'><span><a href='{local('/workbench/runs/' + _e(x.run_id))}'>"
                 f"<code>{_e(x.run_id)}</code></a> · {_e(x.spec_ref)} · {_e(x.release.get('model', ''))}</span>"
                 f"<span>{gate}{_chip('signed', 'green') if x.signoff else ''}</span></div>")
         body = f"""{_eyebrow(cfg, 'runs')}{_nav('runs')}
@@ -508,7 +509,7 @@ def build_router(cfg: Config):
         compare_html = ""
         if others:
             copts = "".join(f"<option value='{_e(o)}'>{_e(o)}</option>" for o in others)
-            compare_html = (f"<form method='get' action='/workbench/compare' style='margin:10px 0'>"
+            compare_html = (f"<form method='get' action='{local('/workbench/compare')}' style='margin:10px 0'>"
                             f"<input type='hidden' name='a' value='{_e(run_id)}'>"
                             f"<label>Compare against</label><select name='b'>{copts}</select>"
                             f"<button type='submit'>Compare →</button></form>")
@@ -518,10 +519,10 @@ def build_router(cfg: Config):
             sign_html = (f"<div class='memo'><b>Signed off</b> by {_e(run.signoff.get('by'))} "
                          f"({_e(run.signoff.get('role'))}) at {_e(run.signoff.get('at', '')[:19])}."
                          f" {_e(run.signoff.get('note', ''))} — "
-                         f"<a href='/workbench/evidence/{_e(run_id)}'>evidence pack →</a></div>")
+                         f"<a href='{local('/workbench/evidence/' + _e(run_id))}'>evidence pack →</a></div>")
         elif run.state == "done":
             if can_sign(role):
-                sign_html = (f"<form method='post' action='/workbench/signoff' class='ghost card'>"
+                sign_html = (f"<form method='post' action='{local('/workbench/signoff')}' class='ghost card'>"
                              f"<input type='hidden' name='run_id' value='{_e(run_id)}'>"
                              f"<label>Sign off this certification run (recorded in Langfuse:"
                              f" review queue + human-annotation score)</label>"
@@ -531,7 +532,7 @@ def build_router(cfg: Config):
             else:
                 sign_html = (f"<div class='note'>Sign-off requires the <b>Approver</b> role "
                              f"(current: {role}) — switch on the overview page. "
-                             f"<a href='/workbench/evidence/{_e(run_id)}'>preview evidence pack →</a></div>")
+                             f"<a href='{local('/workbench/evidence/' + _e(run_id))}'>preview evidence pack →</a></div>")
 
         notice = f"<div class='memo'>{_e(msg)}</div>" if msg else ""
         err_html = (f"<div class='memo'><span class='chip red'>run error</span> {_e(run.error)}</div>"
@@ -649,7 +650,7 @@ def build_router(cfg: Config):
         for c in cands:
             comments = "".join(f"<div class='note'>“{_e(x[:160])}”</div>" for x in c.reviewer_comments)
             cards.append(f"""
-            <form method='post' action='/workbench/promote' class='card'>
+            <form method='post' action='{local('/workbench/promote')}' class='card'>
               <h2>{_e(c.borrower or 'trace')} · <code>{_e(c.case_id or c.trace_id[:12])}</code>
                 {_lf(lf.trace(c.trace_id), 'trace in Langfuse →')}</h2>
               <div class='kv'><span>Question</span><span>{_e((c.question or {}).get('question', ''))}</span></div>
@@ -690,8 +691,8 @@ def build_router(cfg: Config):
                                 requirement_ids=reqs)
         _catalog(cfg, force=True)
         if err:
-            return RedirectResponse(f"/workbench/promote?err={err[:300]}", status_code=303)
-        return RedirectResponse(f"/workbench/promote?ok=item {item_id} in {dataset_name}",
+            return RedirectResponse(local(f"/workbench/promote?err={err[:300]}"), status_code=303)
+        return RedirectResponse(local(f"/workbench/promote?ok=item {item_id} in {dataset_name}"),
                                 status_code=303)
 
     # -- sign-off + evidence ---------------------------------------------------------
@@ -700,9 +701,9 @@ def build_router(cfg: Config):
                    note: str = Form("")):
         run = load_run(cfg, run_id)
         if run is None:
-            return RedirectResponse("/workbench/runs", status_code=303)
+            return RedirectResponse(local("/workbench/runs"), status_code=303)
         ok, msg = sign_off(cfg, run, role=_role_of(request), name=name, note=note)
-        return RedirectResponse(f"/workbench/runs/{run_id}?msg={'signed off. ' + msg if ok else msg}",
+        return RedirectResponse(local(f"/workbench/runs/{run_id}?msg={'signed off. ' + msg if ok else msg}"),
                                 status_code=303)
 
     @r.get("/evidence/{run_id}")
@@ -721,7 +722,7 @@ def build_router(cfg: Config):
         banner = ("" if run.signoff else
                   "<div class='memo'><span class='chip red'>UNSIGNED</span> Preview only — "
                   "download is enabled after Approver sign-off.</div>")
-        dl = (f"<a class='back' href='/workbench/evidence/{_e(run_id)}?download=1'>download .md →</a>"
+        dl = (f"<a class='back' href='{local('/workbench/evidence/' + _e(run_id) + '?download=1')}'>download .md →</a>"
               if run.signoff else "")
         body = (f"{_eyebrow(cfg, 'evidence pack')}{_nav('runs')}{banner}"
                 f"<div class='card'><pre style='font-family:var(--font-mono);font-size:12px;"

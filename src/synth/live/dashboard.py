@@ -11,6 +11,7 @@ import html
 
 from ..config import Config
 from ..state import RunState
+from .paths import local
 from .theme import page
 
 TITLE = "Meridian Commercial Bank — Model Validation"
@@ -98,6 +99,6 @@ def render_dossier(cfg: Config) -> str:
       numeric-accuracy gate (evidence retained). Recertification triggers: model, prompt,
       parameter, or suite change.</p></div>
 
-    <a class="back" href="/">← analyst copilot</a> &nbsp;
-    <a class="back" href="/workbench">validation workbench →</a>"""
+    <a class="back" href="{local('/')}">← analyst copilot</a> &nbsp;
+    <a class="back" href="{local('/workbench')}">validation workbench →</a>"""
     return page(body, title=TITLE, wide=True)

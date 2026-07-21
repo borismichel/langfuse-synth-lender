@@ -15,6 +15,7 @@ import html
 import json
 
 from ..config import Config
+from .paths import local
 from .prefabs import build_prefabs, prefabs_by_key
 from .submit import submit, thumbs_down
 from .theme import page
@@ -33,7 +34,7 @@ def _form(cfg: Config) -> str:
     notes = json.dumps({p.key: p.note for p in prefabs})
     inc, cand = cfg.certification.incumbent_model, cfg.certification.candidate_a_model
     return f"""
-    <form method="post" action="/ask">
+    <form method="post" action="{local('/ask')}">
       <label>Case question</label>
       <select name="prefab" id="prefab" onchange="note()">{opts}</select>
       <div class="note" id="prefab-note"></div>
@@ -59,7 +60,7 @@ def _error_card(headline: str, exc: Exception) -> str:
         was recorded. Please try again.</p>
       <div class="kv"><span>Technical detail</span><span>{html.escape(tech[:160])}</span></div>
     </div>
-    <a class="back" href="/">← try again</a>"""
+    <a class="back" href="{local('/')}">← try again</a>"""
 
 
 def create_app(cfg: Config):
@@ -75,8 +76,8 @@ def create_app(cfg: Config):
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
-        staff = ("<a class='back' href='/dossier'>staff · model validation dossier →</a> &nbsp; "
-                 "<a class='back' href='/workbench'>staff · validation workbench →</a>")
+        staff = (f"<a class='back' href='{local('/dossier')}'>staff · model validation dossier →</a> &nbsp; "
+                 f"<a class='back' href='{local('/workbench')}'>staff · validation workbench →</a>")
         return page(_HEADER + _form(cfg) + staff, title=TITLE)
 
     @app.get("/dossier", response_class=HTMLResponse)
@@ -115,13 +116,13 @@ def create_app(cfg: Config):
           <div class="kv"><span>Deterministic ground truth</span><span>{chip}</span></div>
           <div class="kv"><span>Trace</span><span><a href="{res['trace_url']}" target="_blank">view →</a></span></div>
         </div>
-        <form method="post" action="/flag" class="ghost card">
+        <form method="post" action="{local('/flag')}" class="ghost card">
           <input type="hidden" name="trace_id" value="{res['trace_id']}">
           <label>Something wrong? Flag it for review</label>
           <textarea name="comment" rows="3" placeholder="e.g. the filing prints (2,431) — that's a loss, not a profit"></textarea>
           <button type="submit">Flag this answer</button>
         </form>
-        <a class="back" href="/">← new question</a>"""
+        <a class="back" href="{local('/')}">← new question</a>"""
         return page(body, title=TITLE)
 
     @app.post("/flag", response_class=HTMLResponse)
@@ -140,7 +141,7 @@ def create_app(cfg: Config):
           <div class="kv"><span>Your comment</span><span>{html.escape(res['comment'])}</span></div>
           <div class="kv"><span>Trace</span><span><a href="{res['trace_url']}" target="_blank">view →</a></span></div>
         </div>
-        <a class="back" href="/">← new question</a>"""
+        <a class="back" href="{local('/')}">← new question</a>"""
         return page(body, title=TITLE)
 
     return app

@@ -36,7 +36,7 @@ assets:
 target:
   project_hint: "demo"
   supports: [cloud_eu, cloud_us, self_hosted]
-  cloud_notes: "Traces are DERIVED (~10–12k at full scale, ~12k events at the cloud preset). Run plan first; adjust generation.volume.scale so events ≤ 0.8× your tier cap. The certification suite and experiment runs are preserved at every scale."
+  cloud_notes: "Traces are DERIVED (~10–12k at full scale, ~12k events at the cloud preset). Run plan first; adjust generation.target_traces so events ≤ 0.8× your tier cap (it is an advisory dial — the realized count is session-derived). The certification suite and experiment runs are preserved at every scale."
 
 llm:
   # Demo-time model calls (live playground + certify / workbench runs + the managed
@@ -61,13 +61,18 @@ config_schema:
   # v1 contract: each property NAME is a dotted kit-config key applied as `--set name=value`.
   type: object
   properties:
-    generation.volume.scale:
-      type: number
-      default: 0.5
-      minimum: 0.1
-      maximum: 1.5
-      title: "Volume scale"
-      description: "The single volume scaler. 0.5 is Cloud-free-tier safe; 1.0 is the full self-hosted story. Golden suite/experiments/queue are not scaled."
+    # The CANONICAL, cross-kit operator volume knob (Ring 2, #34). Replaces Lender's bespoke
+    # generation.volume.scale operator knob (now internal only). Shape is exactly what
+    # langfuse_synth_core.authoring.inject_target_traces(minimum=1000, maximum=15000,
+    # default=5000) emits; the kit's derive-scale hook (config.resolve_target_traces) maps it
+    # to generation.volume.scale at seed time (Lender: derive-scale, session-derived count).
+    generation.target_traces:
+      type: integer
+      minimum: 1000
+      maximum: 15000
+      default: 5000
+      title: "Target traces"
+      description: "Total number of backdated traces to generate — the single, uniform volume knob for this demo. ~5000 is Cloud-free-tier safe; ~10000 is the full self-hosted story. Traces are session-DERIVED, so the kit maps this to its internal volume scaler (Lender: derive-scale) — an advisory dial, not an exact count; the certification suite, experiment runs, and review queue are fixed-size and never scaled."
     generation.window_days:
       type: integer
       default: 14

@@ -12,10 +12,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
-import yaml
 from pydantic import BaseModel, Field
+
+from langfuse_synth_core import config as core_config
+from langfuse_synth_core.derivation import DerivationHook
 
 
 class Target(BaseModel):
@@ -51,6 +53,13 @@ class Generation(BaseModel):
     archetype: str = "filing_copilot"
     window_days: int = 30
     tz_offset_hours: int = 2                 # Europe/Berlin business hours
+    # `target_traces` is the CANONICAL, cross-kit operator volume knob (the portal passes
+    # `--set generation.target_traces=N`). Lender has NO absolute trace-count knob — total
+    # traces are session-DERIVED — so the hook resolves this to the internal `volume.scale`
+    # multiplier below via Lender's derive-scale derivation. None (the local/default case)
+    # means "no operator knob set" → keep the `volume.scale` shipped in the config file.
+    # `volume.scale` is INTERNAL only — no longer an operator knob in the manifest (Ring 2, #34).
+    target_traces: int | None = None
     volume: Volume = Field(default_factory=Volume)
     population: Population = Field(default_factory=Population)
     environments: Environments = Field(default_factory=Environments)
@@ -176,28 +185,67 @@ class Config(BaseModel):
         return self.model_by_role("work")
 
 
-def _apply_override(raw: dict[str, Any], override: str) -> None:
-    if "=" not in override:
-        raise ValueError(f"--set must be dotted.key=value, got {override!r}")
-    dotted_key, value = override.split("=", 1)
-    keys = [part for part in dotted_key.split(".") if part]
-    if not keys:
-        raise ValueError(f"--set must include a dotted key, got {override!r}")
+# The load-and-override *mechanism* moved into the lib (Ring 2, #34) as
+# "library-with-parameters": reading YAML and applying `--set dotted.key=value` is
+# scenario-agnostic plumbing. Lender keeps its own concrete pydantic models above and passes
+# `Config.model_validate` as the factory. `apply_overrides` is re-exported so the kit's own
+# override tests and any callers keep their import surface.
+apply_overrides = core_config.apply_overrides
 
-    cursor: dict[str, Any] = raw
-    for key in keys[:-1]:
-        existing = cursor.get(key)
-        if existing is None:
-            existing = {}
-            cursor[key] = existing
-        if not isinstance(existing, dict):
-            raise ValueError(f"--set cannot descend into non-object key {key!r}")
-        cursor = existing
-    cursor[keys[-1]] = yaml.safe_load(value)
+
+# --- the canonical target_traces knob → Lender internals (derivation hook, #29/#34) ------
+#
+# Lender's derivation is **derive-scale** (Spec A §4 — "Lender: derive scale"). Lender has
+# NO absolute trace-count knob: total traces are session-DERIVED, so the operator's uniform
+# `generation.target_traces` maps to Lender's one native `volume.scale` multiplier. The
+# reference yield was measured at scale=1.0, seed 47: ~10,111 traces — so one unit of scale
+# is TRACES_PER_UNIT_SCALE traces. This is the kit-side, deterministic `DerivationHook` the
+# contract describes; the lib ships an `identity_derivation`, but Lender's mapping is a
+# division onto a nested internal knob, so it lives here in the kit.
+#
+# The derivation is production-accurate (proportional near scale 1.0) and monotone; at
+# demo-small volumes the realized count runs ABOVE target_traces because per-day session
+# counts round up (`round(randint(lo,hi) * scale)` in timegen.sample_session_times floors at
+# a ~1/weekday plateau rather than scaling to zero). So target_traces is an advisory volume
+# dial for Lender, never an exact count — consistent with "total traces are DERIVED, not
+# forced." Crucially, `volume.scale` drives ONLY ambient session volume: the certification
+# suite, experiment runs, and review queue are config-sized and stay UNSCALED.
+TRACES_PER_UNIT_SCALE = 10111
+
+
+def derive_scale_derivation(target_traces: int, declared: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Lender derive-scale: ``target_traces -> {"volume.scale": target_traces / 10111}``.
+
+    ``declared`` (the other declared generation params) completes the ``DerivationHook``
+    signature and is intentionally ignored — Lender's scale is derived from the target count
+    alone. Deterministic: identical ``target_traces`` yields an identical scale every call."""
+    return {"volume.scale": int(target_traces) / TRACES_PER_UNIT_SCALE}
+
+
+# Assert the kit hook satisfies the lib's DerivationHook contract at import time.
+_LENDER_DERIVATION: DerivationHook = derive_scale_derivation
+
+
+def resolve_target_traces(cfg: Config) -> Config:
+    """Resolve the canonical ``generation.target_traces`` operator knob to Lender's internal
+    ``generation.volume.scale`` via the derive-scale hook. No-op when the knob is unset
+    (local/default runs keep the ``volume.scale`` shipped in the config). Mutates and returns
+    ``cfg``."""
+    tt = cfg.generation.target_traces
+    if tt is not None:
+        declared = cfg.generation.model_dump(exclude={"target_traces"})
+        cfg.generation.volume.scale = float(derive_scale_derivation(tt, declared)["volume.scale"])
+    return cfg
 
 
 def load_config(path: str | Path, overrides: Sequence[str] | None = None) -> Config:
-    raw = yaml.safe_load(Path(path).read_text())
-    for override in overrides or ():
-        _apply_override(raw, override)
-    return Config.model_validate(raw)
+    """Load a config YAML into Lender's :class:`Config`, applying ``--set`` overrides.
+
+    Delegates the YAML-read + override plumbing to the shared lib loader; the pydantic model
+    is Lender's own. The canonical ``generation.target_traces`` operator knob is resolved to
+    Lender's internal ``generation.volume.scale`` here via the kit-side derive-scale hook (see
+    :func:`resolve_target_traces`), so every command (plan/seed/verify) sees the derived
+    volume."""
+    cfg: Config = core_config.load_config(path, Config.model_validate, list(overrides) if overrides else None)
+    resolve_target_traces(cfg)
+    return cfg

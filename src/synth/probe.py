@@ -15,7 +15,7 @@ from typing import Callable
 import requests
 
 from .config import Config
-from .seed.ingest import Ingestor, assert_demo_project
+from langfuse_synth_core.seed.ingest import Ingestor, assert_demo_project
 from .timegen import now_utc
 
 

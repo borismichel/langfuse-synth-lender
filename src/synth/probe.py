@@ -26,7 +26,7 @@ def run_probe(cfg: Config, log: Callable[[str], None] = print) -> bool:
 
     from .agent import answer_deterministic
     from .content import flagged_cases
-    from .rng import Rng
+    from langfuse_synth_core.rng import Rng
     from .seed.traces import TraceSpec, build_trace_events
 
     rng = Rng(cfg.generation.seed)

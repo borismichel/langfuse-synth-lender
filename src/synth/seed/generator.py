@@ -20,7 +20,7 @@ from ..content import (
     user_population,
 )
 from ..filings import BORROWERS, case_id, desk_for, filing_type
-from ..rng import Rng
+from langfuse_synth_core.rng import Rng
 from ..timegen import day_anchor, iso_date, sample_in_range, sample_session_times, window_start
 from . import certification as cert_mod
 from .certification import Certification

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from ..content import flagged_cases
 from ..models import AnalystQuestion
-from ..rng import Rng
+from langfuse_synth_core.rng import Rng
 
 
 @dataclass(frozen=True)

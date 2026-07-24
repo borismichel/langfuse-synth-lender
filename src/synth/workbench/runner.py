@@ -83,7 +83,7 @@ def _execute(cfg: Config, spec: ExperimentSpec, run_id: str) -> None:
                        spec=spec.model_dump(), release=spec.release.model_dump(),
                        evaluator_shas=shas, started=started)
     try:
-        from ..lfclient import get_langfuse
+        from langfuse_synth_core.lfclient import get_langfuse
         from ..llm import get_llm
 
         lf = get_langfuse(cfg)

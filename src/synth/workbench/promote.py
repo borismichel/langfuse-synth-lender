@@ -107,7 +107,7 @@ def promote(cfg: Config, *, trace_id: str, dataset_name: str, slice_name: str,
     except requests.RequestException as exc:
         return "", f"trace lookup failed: {exc}"
 
-    from ..lfclient import get_langfuse
+    from langfuse_synth_core.lfclient import get_langfuse
 
     lf = get_langfuse(cfg)
     item = lf.create_dataset_item(

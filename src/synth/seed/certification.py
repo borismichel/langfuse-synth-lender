@@ -27,11 +27,11 @@ from datetime import datetime, timedelta
 from ..agent import answer_deterministic
 from ..config import Config
 from ..content import SCENARIO_OF_KIND, build_question, flagged_cases
-from ..distributions import cache_split, sample_tokens, text_tokens
+from langfuse_synth_core.distributions import cache_split, sample_tokens, text_tokens
 from ..filings import BORROWERS, case_id, excerpt_debt, excerpt_income, excerpt_metrics, financials
 from ..models import AnalystQuestion, CopilotAnswer
-from ..pricing import cost_details, usage_details
-from ..rng import Rng
+from langfuse_synth_core.pricing import cost_details, usage_details
+from langfuse_synth_core.rng import Rng
 from ..timegen import day_anchor
 
 SCENARIOS = ("summary", "numeric_lookup", "trend", "covenant", "out_of_scope")

@@ -24,8 +24,8 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from ..config import Config
-from ..live.paths import local
-from ..live.theme import page
+from langfuse_synth_core.live.paths import local
+from langfuse_synth_core.live.theme import page
 from . import runner as runner_mod
 from .catalog import Catalog, fetch_catalog
 from .links import Links

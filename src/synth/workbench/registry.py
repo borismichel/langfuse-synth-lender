@@ -145,7 +145,7 @@ def _sample_item(cfg) -> tuple[dict, dict]:
     """A deterministic (input, expected_output) pair for the smoke-run."""
     from ..agent import answer_deterministic
     from ..content import flagged_cases
-    from ..rng import Rng
+    from langfuse_synth_core.rng import Rng
 
     case = flagged_cases(Rng(cfg.generation.seed))[0]
     return case.question.model_dump(), answer_deterministic(case.question).model_dump()

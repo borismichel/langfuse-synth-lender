@@ -11,8 +11,8 @@ import html
 
 from ..config import Config
 from ..state import RunState
-from .paths import local
-from .theme import page
+from langfuse_synth_core.live.paths import local
+from langfuse_synth_core.live.theme import page
 
 TITLE = "Meridian Commercial Bank — Model Validation"
 

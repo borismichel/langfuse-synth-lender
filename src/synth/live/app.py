@@ -15,10 +15,10 @@ import html
 import json
 
 from ..config import Config
-from .paths import local
+from langfuse_synth_core.live.paths import local
 from .prefabs import build_prefabs, prefabs_by_key
 from .submit import submit, thumbs_down
-from .theme import page
+from langfuse_synth_core.live.theme import page
 
 TITLE = "Meridian Commercial Bank — Analyst Copilot"
 

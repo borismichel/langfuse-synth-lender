@@ -137,7 +137,7 @@ def test_german_sessions_never_mix_languages():
     """Every ambient question kind has a German rendering — a `language:de` session
     can't jump between languages mid-chat."""
     from synth.content import QUESTION_KINDS, build_question, germanize
-    from synth.rng import Rng
+    from langfuse_synth_core.rng import Rng
 
     rng = Rng(47)
     for kind in QUESTION_KINDS:

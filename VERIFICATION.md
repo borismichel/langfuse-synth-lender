@@ -62,3 +62,43 @@ the story.
   items); the underlying traces and reviewer scores are correctly backdated.
 - Agent-graph observation types (AGENT/TOOL/RETRIEVER) render as spans with the type
   in metadata — native typed observations are OTel-endpoint-only (see ev kit notes).
+
+## Offline determinism golden gate (author-time, pre-ingestion)
+
+The checks above verify data *after* it lands in Langfuse. The golden gate verifies the
+generator itself, **offline, before any ingestion** — the migration oracle for Spec A
+(`langfuse-synth-core`, Step 0 · #30).
+
+`tests/test_determinism.py::test_full_payload_golden_is_byte_identical` materializes the
+**entire pre-ingestion Spool** (the NDJSON event stream — traces + observations + scores)
+in a subprocess under `PYTHONHASHSEED=0` and a **deny-LLM egress block**, and asserts it is
+byte-identical to the blessed snapshot at `tests/golden/lender_spool.ndjson`. So it proves,
+in one shot, that generation is **deterministic** and **model-free at seed runtime**. Any
+refactor that silently perturbs the pool, or that plants an LLM call in generation code,
+fails here — loudly, before a single event is ingested.
+
+```bash
+pip install -e ".[dev]"        # pulls the git-pinned langfuse-synth-core[authoring] gate
+pytest tests/test_determinism.py
+```
+
+**The oracle is pinned at `target_traces=150`.** Lender has no absolute count knob — total
+traces are session-DERIVED — so `golden_seed.py` maps the canonical `target_traces` to the
+native `volume.scale` (`scale = target_traces / 10111`, the measured yield at scale 1.0).
+Coverage saturates at this pin: all five golden keys, both languages, every filing-type and
+desk, the curated suite, flagged-pending, and the nightly batch are present, because the
+certification suite / experiment runs / review queue are config-sized and stay **unscaled**.
+
+> **Floor note.** Per-day session counts are rounded — `round(randint(lo,hi) * scale)` —
+> so below scale ≈0.025 weekday counts round up to a ~1/weekday plateau instead of scaling
+> to zero, and the realized trace count flattens (target_traces=150 → ~252 traces / ~4.1 MB).
+> `target_traces` is an advisory volume dial for Lender, never an exact count — consistent
+> with "total traces are DERIVED, not forced". The oracle cannot be made smaller than this
+> plateau via the knob; that is inherent, and it does not weaken the byte-for-byte guarantee.
+
+**Re-blessing** (only for a *deliberate* pool change — never hand-edit the snapshot):
+
+```bash
+synth-authoring freeze golden_seed:seed \
+    --golden tests/golden/lender_spool.ndjson --target-traces 150 --search-path tests
+```

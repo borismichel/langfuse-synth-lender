@@ -22,6 +22,13 @@ playground = [           # `synth playground` — the analyst-copilot UI + /doss
     "uvicorn>=0.27",
     "python-multipart>=0.0.9",   # FastAPI form parsing
 ]
+dev = [                  # dev/authoring-time only — NEVER in the runtime image (Spec A §3)
+    "pytest>=8,<9",
+    # Determinism golden gate + `synth-authoring freeze` (Spec A · Step 0 · #30). Pulled
+    # ONLY for the golden-gate test; git-pinned to a synth-core SHA so the oracle is
+    # reproduced against a fixed gate. Bump this pin deliberately (Ring 1, #32), never drift.
+    "langfuse-synth-core[authoring] @ git+https://github.com/borismichel/langfuse-synth-core@630f07be440602c622fdc2956705da03cc53604a",
+]
 
 [project.scripts]
 synth = "synth.cli:app"

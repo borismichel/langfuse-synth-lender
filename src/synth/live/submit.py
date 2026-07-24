@@ -19,7 +19,7 @@ from ..config import Config
 from ..models import AnalystQuestion
 from langfuse_synth_core.rng import Rng
 from langfuse_synth_core.seed.events import score_event
-from ..seed.ingest import Ingestor, assert_demo_project
+from langfuse_synth_core.seed.ingest import Ingestor, assert_demo_project
 from ..seed.traces import TraceSpec, build_trace_events
 
 

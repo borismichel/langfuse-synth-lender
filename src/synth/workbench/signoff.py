@@ -50,7 +50,7 @@ def _record_in_langfuse(cfg: Config, run: WorkbenchRun) -> str:
         from langfuse_synth_core.rng import Rng
         from ..seed.annotation import add_queue_item, ensure_queue, score_config_ids
         from langfuse_synth_core.seed.events import score_event
-        from ..seed.ingest import Ingestor
+        from langfuse_synth_core.seed.ingest import Ingestor
         from ..seed.scores import REVIEW_QUEUE_CONFIGS
 
         base = cfg.target.base_url

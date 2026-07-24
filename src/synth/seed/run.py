@@ -23,7 +23,7 @@ from ..timegen import day_anchor, iso_date, now_utc
 from .annotation import seed_queue
 from .cert_runs import run_gate_verdict, run_pass_rates
 from .generator import Plan, build_plan
-from .ingest import Ingestor, assert_demo_project, ensure_score_config
+from langfuse_synth_core.seed.ingest import Ingestor, assert_demo_project, ensure_score_config
 from .scores import (
     SCORE_CONFIGS,
     analyst_feedback_score,

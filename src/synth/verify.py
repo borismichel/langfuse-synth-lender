@@ -18,10 +18,10 @@ Asserts:
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 
-import requests
+from langfuse_synth_core.http import request_retry
+from langfuse_synth_core.lfread import auth_from_env, get_all_scores, get_json
 
 from .config import Config
 from .state import RunState
@@ -46,61 +46,28 @@ class VerifyReport:
         return all(c.ok for c in self.checks)
 
 
-def _auth():
-    return (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
+# --- the verify read-client — now the shared lib's (Ring 2 verify split, #34) -----------
+# docs/SEAM.md: the read-helpers (auth + paginated GET of scores/traces across the Langfuse
+# public REST API) are the read direction of "the machine that speaks the Langfuse data
+# model", so they moved into langfuse_synth_core.lfread and ride the shared Retry-After-aware
+# request_retry. They are rebound to their original local names so the run_verify assertion
+# body below is byte-unchanged. `get_all_scores` additionally probes the scores endpoint once
+# (v2 with a legacy-server fallback) — a benign superset of Lender's old hard-coded /v2/scores.
+# The `run_verify` body (which assertions to make about what landed) stays here in the kit —
+# that is the scenario talking.
+_auth = auth_from_env
+_get = get_json
+_get_scores = get_all_scores
 
 
 def _get_resp(base: str, path: str, params: dict | None = None):
-    """GET with patient retry — Langfuse Cloud rate-limits reads (429) AND its
-    read endpoints are flaky/slow right after a seed (timeouts, transient 5xx), so a
-    verify sweep must back off and retry rather than flake on the first hiccup."""
-    import time
-
-    url = f"{base.rstrip('/')}{path}"
-    backoff = 2.0
-    last_exc = None
-    for attempt in range(6):
-        try:
-            resp = requests.get(url, params=params or {}, auth=_auth(), timeout=45)
-        except requests.RequestException as exc:  # timeout / connection reset
-            last_exc = exc
-            if attempt == 5:
-                raise
-            time.sleep(backoff)
-            backoff = min(backoff * 2, 30)
-            continue
-        if resp.status_code in (429, 500, 502, 503, 504) and attempt < 5:
-            try:
-                wait = max(backoff, float(resp.headers.get("Retry-After", 0)))
-            except (TypeError, ValueError):
-                wait = backoff
-            time.sleep(min(wait, 30))
-            backoff = min(backoff * 2, 30)
-            continue
-        return resp
-    if last_exc:
-        raise last_exc
-    return resp
-
-
-def _get(base: str, path: str, params: dict | None = None) -> dict:
-    resp = _get_resp(base, path, params)
-    resp.raise_for_status()
-    return resp.json()
-
-
-def _get_scores(base: str, name: str, limit_pages: int = 30) -> list[dict]:
-    out: list[dict] = []
-    page = 1
-    while page <= limit_pages:
-        data = _get(base, "/api/public/v2/scores", {"name": name, "limit": 100, "page": page})
-        rows = data.get("data", [])
-        out.extend(rows)
-        meta = data.get("meta", {})
-        if not rows or page >= meta.get("totalPages", page):
-            break
-        page += 1
-    return out
+    """Raw response for tolerate-404 existence checks (a trace/run may legitimately be
+    absent, and a 404 is a signal here, not an error). The lib read-client (`get_json`)
+    raises on non-2xx, so this one assertion-side helper stays in the kit — but it rides the
+    shared Retry-After-aware `request_retry`, so it backs off on Cloud 429s / transient 5xx
+    exactly as the moved read-client does."""
+    return request_retry("GET", f"{base.rstrip('/')}{path}", auth=auth_from_env(),
+                         params=params or {}, timeout=45)
 
 
 def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:

@@ -37,32 +37,24 @@ from synth.state import REPO_ROOT
 CONFIG = REPO_ROOT / "config" / "demo.yaml"
 RUN_DATE = datetime(2026, 6, 10, 12, 0, 0, tzinfo=timezone.utc)
 
-# Lender's canonical target_traces -> volume.scale derivation (Spec A §4 — "Lender: derive
-# scale"). Lender has NO absolute trace-count knob: total traces are session-DERIVED, so
-# the operator's uniform `generation.target_traces` maps to the one native `volume.scale`
-# multiplier here. The reference yield was measured at scale=1.0, seed 47: ~10,111 traces.
-#
-# This is the STEP-0 derivation seam; Ring 2 (#33/#34) inherits and formalizes it. It is
-# production-accurate (proportional near scale 1.0) and monotone; at demo-small volumes the
-# realized count runs ABOVE target_traces because per-day session counts are rounded —
-# `round(randint(lo,hi) * scale)` (timegen.sample_session_times) rounds weekday counts up to
-# a ~1/weekday plateau rather than scaling to zero, so the realized trace count flattens
-# (~252) below scale ≈0.025. target_traces is therefore an advisory volume dial for Lender,
-# never an exact count — consistent with "total traces are DERIVED, not forced". Crucially,
-# `volume.scale` drives ONLY ambient session volume: the certification suite, experiment
-# runs, and review queue are config-sized and stay UNSCALED.
-TRACES_PER_UNIT_SCALE = 10111
-
 
 def seed(target_traces: int, params: Mapping[str, Any]) -> bytes:
     """Materialize the full pre-ingestion Spool for a fixed ``target_traces``; return bytes.
 
-    ``params`` completes the ``seed(target_traces, params)`` gate contract; the Step-0 oracle
-    pins the config defaults (seed 47), so nothing is read from it here — declared-param
-    knobs land when Ring 2 (#33/#34) wires the real derivation.
+    Lender derivation hook (Spec A §4 — "Lender: derive scale"): ``target_traces`` maps to
+    the kit's internal ``generation.volume.scale`` multiplier (Lender has no absolute
+    trace-count knob; total traces are session-DERIVED). Ring 2 (#34) wired that mapping
+    through the REAL operator path — the canonical ``generation.target_traces`` knob is set
+    exactly as the portal sets it (``--set``), and Lender's kit-side derive-scale derivation
+    hook (``config.resolve_target_traces``) derives ``volume.scale`` at load. So this gate
+    now proves the acceptance criterion directly: turning ``target_traces`` through the hook
+    yields a Spool byte-identical to pre-migration Lender at the same effective volume.
+
+    ``params`` completes the ``seed(target_traces, params)`` gate contract; Lender's
+    derive-scale reads only the knob, so the Step-0 oracle (config defaults, seed 47) reads
+    nothing from it.
     """
-    cfg = load_config(str(CONFIG))
-    cfg.generation.volume.scale = int(target_traces) / TRACES_PER_UNIT_SCALE
+    cfg = load_config(str(CONFIG), overrides=[f"generation.target_traces={int(target_traces)}"])
 
     with tempfile.TemporaryDirectory(prefix="lender-golden-") as tmp:
         spool_path = Path(tmp) / "events.ndjson"

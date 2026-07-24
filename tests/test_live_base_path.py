@@ -8,7 +8,7 @@ the env unset, rendered output must be byte-identical to today. Routes never mov
 import pytest
 
 from synth.live import app as la
-from synth.live.paths import base_path, local
+from langfuse_synth_core.live.paths import base_path, local
 from synth.workbench import views as wbviews
 
 

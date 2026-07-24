@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from ..rng import Rng
-from .events import score_event
+from langfuse_synth_core.rng import Rng
+from langfuse_synth_core.seed.events import score_event
 
 # Score configs to create up front (POST /api/public/score-configs).
 SCORE_CONFIGS: list[dict] = [

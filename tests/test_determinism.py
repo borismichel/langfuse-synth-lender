@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from synth.config import load_config
-from synth.rng import Rng
+from langfuse_synth_core.rng import Rng
 from synth.seed.generator import build_plan
 
 RUN_DATE = datetime(2026, 6, 10, 12, 0, 0, tzinfo=timezone.utc)

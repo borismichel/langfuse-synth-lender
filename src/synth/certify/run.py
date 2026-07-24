@@ -51,7 +51,7 @@ def _evaluators():
 
 def certify(cfg: Config, model: str, *, run_name: str | None = None,
             log: Callable[[str], None] = print) -> CertifyResult:
-    from ..lfclient import get_langfuse
+    from langfuse_synth_core.lfclient import get_langfuse
     from ..llm import get_llm
 
     cert = cfg.certification
@@ -153,7 +153,7 @@ def offline_check(cfg: Config, log: Callable[[str], None] = print) -> bool:
     """No-model CI smoke: every suite item's reference answer must pass its own
     scenario check (catches a drifted corpus before a demo)."""
     from ..models import AnalystQuestion
-    from ..rng import Rng
+    from langfuse_synth_core.rng import Rng
     from ..seed.certification import build_suite
 
     suite = build_suite(cfg, Rng(cfg.generation.seed))

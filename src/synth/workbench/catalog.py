@@ -139,7 +139,7 @@ def offline_catalog(cfg: Config) -> Catalog:
                     "labels": ["production"]}]
     # suites re-derived from the deterministic plan: items + slices, no network
     try:
-        from ..rng import Rng
+        from langfuse_synth_core.rng import Rng
         from ..seed.certification import build_suite, requirement_ids_for
 
         suite = build_suite(cfg, Rng(cfg.generation.seed))

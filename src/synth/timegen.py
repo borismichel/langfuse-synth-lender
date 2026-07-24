@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from .rng import Rng
+from langfuse_synth_core.rng import Rng
 
 # Diurnal shape: relative weight per local hour (0-23). Peaks mid-morning & mid-afternoon.
 _DIURNAL = [

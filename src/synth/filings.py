@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .models import Excerpt
-from .rng import Rng
+from langfuse_synth_core.rng import Rng
 
 
 @dataclass(frozen=True)

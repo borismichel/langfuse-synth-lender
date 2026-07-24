@@ -3,7 +3,6 @@
 See ``README.md`` for the overview. The package is organised as:
 
 - ``config``        — typed load of ``config/demo.yaml``
-- ``rng``           — single-seed deterministic RNG + W3C-format ID derivation
 - ``models``        — ``AnalystQuestion`` / ``CopilotAnswer`` data contracts (spec §16)
 - ``filings``       — the deterministic borrower/filing corpus
 - ``agent``         — ``answer(question, model)`` (the one lever, spec §7)

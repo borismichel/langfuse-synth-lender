@@ -17,8 +17,8 @@ from typing import Callable
 from ..agent import parse_answer
 from ..config import Config
 from ..models import AnalystQuestion
-from ..rng import Rng
-from ..seed.events import score_event
+from langfuse_synth_core.rng import Rng
+from langfuse_synth_core.seed.events import score_event
 from ..seed.ingest import Ingestor, assert_demo_project
 from ..seed.traces import TraceSpec, build_trace_events
 
@@ -46,7 +46,7 @@ def submit(cfg: Config, question: AnalystQuestion, model: str | None = None,
     """Ask one live question and emit its trace. Returns the answer, the deterministic
     ground truth (for contrast), the prompt version, and a deep link to the trace."""
     from ..agent import answer_deterministic
-    from ..lfclient import get_langfuse
+    from langfuse_synth_core.lfclient import get_langfuse
     from ..llm import get_llm
 
     base_url = cfg.target.base_url

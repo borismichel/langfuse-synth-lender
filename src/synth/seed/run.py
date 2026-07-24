@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..config import Config
-from ..rng import Rng
+from langfuse_synth_core.rng import Rng
 from ..state import REPO_ROOT, RunState
 from ..timegen import day_anchor, iso_date, now_utc
 from .annotation import seed_queue
@@ -78,7 +78,7 @@ def run_seed(cfg: Config, *, dry_run: bool = False, persist: bool = True,
                 "staging": cfg.certification.staging_version}
     lf = None
     if cfg.certification.enabled and not dry_run:
-        from ..lfclient import get_langfuse
+        from langfuse_synth_core.lfclient import get_langfuse
         from .prompts import register_prompts
 
         lf = get_langfuse(cfg)
@@ -318,7 +318,7 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
 def _golden_scores(rng: Rng, cfg: Config, spec, golden) -> list[dict]:
     """Every relevant score on a golden trace — the click-in moments must show the
     measurement, not just the content (spec v2 §4, §6)."""
-    from .events import score_event
+    from langfuse_synth_core.seed.events import score_event
 
     s = rng.sub("goldscore", spec.trace_id)
     ts, tid, env = spec.timestamp, spec.trace_id, spec.environment

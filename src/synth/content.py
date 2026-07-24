@@ -24,7 +24,7 @@ from .filings import (
     financials,
 )
 from .models import AnalystQuestion, CopilotAnswer
-from .rng import Rng
+from langfuse_synth_core.rng import Rng
 
 # ---------------------------------------------------------------------------
 # Analyst population — language is a property of the ANALYST: German-named users

@@ -1,0 +1,74 @@
+"""Spool-count exposure for the Lender kit (#35).
+
+Two things this locks:
+
+* the lib-side ``count_spool`` measures the **Step 0 golden** (``tests/golden/lender_spool.ndjson``)
+  exactly, cross-checked against an independent recount of the snapshot's own bytes; and
+* the kit exposes it to the portal the same way ``import-spool`` is exposed — a ``synth``
+  console verb — printing the measured count as JSON with no new plumbing shape.
+
+Note Lender maps ``target_traces`` to an internal ``volume.scale`` (derive-scale), so the
+measured trace count is the *derived* volume, not the knob value — which is exactly why the
+measured Spool count, not an advisory estimate, is what binds.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from langfuse_synth_core.seed.count import count_spool
+from synth.cli import app
+
+GOLDEN_PATH = Path(__file__).resolve().parent / "golden" / "lender_spool.ndjson"
+
+# The Step 0 snapshot's own billable tallies, frozen alongside the byte-identical oracle
+# (a deliberate re-bless of lender_spool.ndjson updates both). Lender maps target_traces=150
+# to an internal volume.scale (derive-scale), so the measured trace count is the derived
+# volume (252), not the knob value — which is exactly why the measured count is what binds.
+GOLDEN_TALLIES = {"traces": 252, "observations": 1369, "scores": 531}
+
+# Independent (whitelist duplicated here on purpose) recount, a different code path than
+# the library's, so agreement is a real cross-check rather than a tautology.
+_OBSERVATION_TYPES = {"span-create", "generation-create", "event-create", "observation-create"}
+
+
+def _independent_tally(path: Path) -> dict[str, int]:
+    counts = {"traces": 0, "observations": 0, "scores": 0}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        etype = json.loads(line)["type"]
+        if etype == "trace-create":
+            counts["traces"] += 1
+        elif etype in _OBSERVATION_TYPES:
+            counts["observations"] += 1
+        elif etype == "score-create":
+            counts["scores"] += 1
+    return counts
+
+
+def test_count_spool_matches_golden_step0_tallies():
+    counts = count_spool(GOLDEN_PATH)
+    # Anchor to the snapshot's own recorded tallies (the derived-volume trace count included).
+    assert counts == GOLDEN_TALLIES
+    # ...and cross-check that against an independent recount of the same bytes.
+    assert counts == _independent_tally(GOLDEN_PATH)
+
+
+def test_count_spool_cli_verb_prints_json(tmp_path: Path):
+    """`synth count-spool <spool>` — exposed exactly like `synth import-spool`."""
+    spool = tmp_path / "events.ndjson"
+    spool.write_text(
+        '{"type":"trace-create","id":"t"}\n'
+        '{"type":"generation-create","id":"o"}\n'
+        '{"type":"score-create","id":"s"}\n'
+        '{"type":"dataset-run-item-create","id":"r"}\n',  # excluded
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(app, ["count-spool", str(spool)])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {"traces": 1, "observations": 1, "scores": 1}

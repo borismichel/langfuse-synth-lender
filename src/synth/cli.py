@@ -3,6 +3,7 @@
     synth plan          --config demo.yaml   # dry-run: volumes, suites, seeded-run summary
     synth seed          --config demo.yaml   # generate + ingest backdated; prompt; suites; runs; queues
     synth import-spool                       # resume an interrupted upload
+    synth count-spool                        # print the measured billable set of the spool (JSON)
     synth verify        --config demo.yaml   # query back via the API, assert the golden path
     synth certify       --config demo.yaml --model <id>   # the button (live model calls)
     synth memo          --config demo.yaml   # render CERT_MEMO.md (the validation dossier)
@@ -78,6 +79,17 @@ def import_spool(spool: str = typer.Argument(None, help="Spool file to import (d
 
     cfg = _load(config)
     import_spool_file(cfg, spool, log=lambda m: typer.echo(m))
+
+
+@app.command(name="count-spool")
+def count_spool(spool: str = typer.Argument(None, help="Spool file to count (default .synth_spool/events.ndjson).")):
+    """Print the measured billable set — {traces, observations, scores} — of a materialized
+    Spool as JSON. The read-side counterpart to `import-spool`: an offline count of exactly
+    what Langfuse meters (experiment runs and dataset items excluded), read straight off the
+    NDJSON spool the seed step wrote. This is the measured count the deploy pipeline reads."""
+    from .seed.run import count_spool_file
+
+    typer.echo(json.dumps(count_spool_file(spool)))
 
 
 @app.command()

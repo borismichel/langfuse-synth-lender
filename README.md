@@ -181,3 +181,12 @@ project-level** (fresh project + re-seed; deterministic ids regenerate identical
 pip install pytest && pytest -q   # 51 tests: determinism, truth table, run verdicts,
                                   # session shape, v2 trace structure, artifacts, workbench
 ```
+
+## Image releases
+
+Pushing a `vX.Y.Z` tag triggers `.github/workflows/publish.yml`, which builds this
+kit's image, pushes it to `ghcr.io/borismichel/langfuse-synth-lender`, and cosign-signs
+it keylessly (Spec E · E7, #102). See
+[`langfuse-synth-core`'s `docs/CI_SIGNING.md`](https://github.com/borismichel/langfuse-synth-core/blob/main/docs/CI_SIGNING.md)
+for the full contract — image naming, cadence, runner, and the signing-identity policy
+the portal's verification gate checks against.

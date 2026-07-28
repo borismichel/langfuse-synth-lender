@@ -7,15 +7,17 @@ requires-python = ">=3.10"
 dependencies = [
     # The shared byte-identical core (Ring 1, #31/#32): RNG/ID, pricing, distributions, the
     # Langfuse client, event emission, and the live-UI primitives now live in the lib.
-    # Pinned to a release tag (never a moving branch), bumped to v1.1.0 with #35 (the
-    # Spool-count primitive count_spool + the units_per_trace advisory field). Both pins below
-    # MUST share this ref (see the lib's RELEASING.md) so this kit's vendor-approved output
-    # can't be silently rewritten by a lib change; bump the pin deliberately. The repo is
+    # Pinned to a release tag (never a moving branch), bumped to v1.2.1 with #148. The runtime
+    # library is unchanged since v1.1.0 (the Spool-count primitive count_spool + the
+    # units_per_trace advisory field); v1.2.0/v1.2.1 were authoring/CI-only (E7/E7b
+    # kit-publish workflow + scaffold wiring), so this kit's goldens stay byte-identical. Both
+    # pins below MUST share this ref (see the lib's RELEASING.md) so this kit's vendor-approved
+    # output can't be silently rewritten by a lib change; bump the pin deliberately. The repo is
     # public, so the install is a plain pip install (the
     # Docker build installs `git` to fetch it — no build secret). langfuse below is still
     # declared directly: it is this kit's own SDK surface (run_experiment, prompts,
     # datasets), not only the lib's.
-    "langfuse-synth-core @ git+https://github.com/borismichel/langfuse-synth-core@v1.1.0",
+    "langfuse-synth-core @ git+https://github.com/borismichel/langfuse-synth-core@v1.2.1",
     "langfuse>=4.0,<5",      # v4 Python SDK (run_experiment, prompts, datasets, api client)
     "anthropic>=0.40.0",     # live model calls at demo time — Anthropic provider (default)
     "openai>=1.40.0",        # live model calls at demo time — OpenAI provider (LAN-378)
@@ -36,10 +38,10 @@ playground = [           # `synth playground` — the analyst-copilot UI + /doss
 dev = [                  # dev/authoring-time only — NEVER in the runtime image (Spec A §3)
     "pytest>=8,<9",
     # Determinism golden gate + `synth-authoring freeze`. Adds the [authoring] extra on top
-    # of the runtime core pin above — same ref (v1.1.0, #35), so the gate that reproduces the
+    # of the runtime core pin above — same ref (v1.2.1, #148), so the gate that reproduces the
     # oracle and the core the kit runs against are the one, identical build. Bump both pins
     # together, never let them drift apart.
-    "langfuse-synth-core[authoring] @ git+https://github.com/borismichel/langfuse-synth-core@v1.1.0",
+    "langfuse-synth-core[authoring] @ git+https://github.com/borismichel/langfuse-synth-core@v1.2.1",
 ]
 
 [project.scripts]

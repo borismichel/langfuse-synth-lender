@@ -29,7 +29,7 @@ def can_sign(role: str) -> bool:
 
 
 def sign_off(cfg: Config, run: WorkbenchRun, *, role: str, name: str,
-             note: str) -> tuple[bool, str]:
+             note: str, adapter=None) -> tuple[bool, str]:
     if not can_sign(role):
         return False, "only an Approver can sign off (switch role on the overview page)"
     if run.state != "done":
@@ -37,20 +37,22 @@ def sign_off(cfg: Config, run: WorkbenchRun, *, role: str, name: str,
     run.signoff = {"by": name or "approver", "role": role, "note": note,
                    "at": datetime.now(timezone.utc).isoformat()}
     save_run(cfg, run)
-    err = _record_in_langfuse(cfg, run)
+    err = _record_in_langfuse(cfg, run, adapter)
     return True, ("" if not err else f"recorded locally; Langfuse evidence write failed: {err}")
 
 
-def _record_in_langfuse(cfg: Config, run: WorkbenchRun) -> str:
-    """Queue item + human-annotation score on a sample run trace (best-effort)."""
+def _record_in_langfuse(cfg: Config, run: WorkbenchRun, adapter=None) -> str:
+    """Queue item + human-annotation score on a sample run trace (best-effort). The write
+    client comes from the Companion Adapter when the live Surface hands one in (Spec G · G5,
+    #144); otherwise it is built off the env, unchanged."""
     sample = next((r for r in run.rows if r.get("trace_id")), None)
     if sample is None:
         return "no run trace available"
     try:
         from langfuse_synth_core.rng import Rng
+        from ..clients import ingestor as get_ingestor
         from ..seed.annotation import add_queue_item, ensure_queue, score_config_ids
         from langfuse_synth_core.seed.events import score_event
-        from langfuse_synth_core.seed.ingest import Ingestor
         from ..seed.scores import REVIEW_QUEUE_CONFIGS
 
         base = cfg.target.base_url
@@ -67,7 +69,7 @@ def _record_in_langfuse(cfg: Config, run: WorkbenchRun) -> str:
             comment=(f"human annotation (certification-review) — sign-off by "
                      f"{run.signoff.get('by')} on {run.spec_ref} "
                      f"(spec {run.spec_hash[:12]}…). {run.signoff.get('note', '')}".strip()))
-        ing = Ingestor.from_env(base)
+        ing = get_ingestor(cfg, adapter)
         ing.add(ev)
         ing.flush()
         return ""

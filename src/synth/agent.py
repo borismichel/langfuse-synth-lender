@@ -403,7 +403,8 @@ def answer(
 
     Default (seed path) is deterministic and model-free (``model`` is recorded, not
     called); ``error_mode`` injects a documented failure pattern. Pass ``live=True``
-    with a Langfuse client (``lf``) and an :class:`~synth.llm.LLMClient` (``llm``) to
+    with a Langfuse client (``lf``) and an
+    :class:`~langfuse_synth_core.companion.llm.LLMClient` (``llm``) to
     run the real agent path used by ``synth certify``; the client owns the resolved
     provider and model.
     """

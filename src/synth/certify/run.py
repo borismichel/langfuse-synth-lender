@@ -51,12 +51,12 @@ def _evaluators():
 
 def certify(cfg: Config, model: str, *, run_name: str | None = None,
             log: Callable[[str], None] = print) -> CertifyResult:
-    from langfuse_synth_core.lfclient import get_langfuse
-    from ..llm import get_llm
+    from ..clients import langfuse as get_langfuse
+    from ..clients import llm as get_client
 
     cert = cfg.certification
     lf = get_langfuse(cfg)
-    llm = get_llm(model)
+    llm = get_client(model)
     model = llm.model  # the model actually resolved for the selected provider
 
     prompt = lf.get_prompt(cert.prompt_name, label="production", type="chat", cache_ttl_seconds=0)

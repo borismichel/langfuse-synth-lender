@@ -95,8 +95,11 @@ def _hydrate(cfg: Config, trace_id: str, status: str) -> Candidate:
 
 
 def promote(cfg: Config, *, trace_id: str, dataset_name: str, slice_name: str,
-            expected_output_json: str, requirement_ids: list[str]) -> tuple[str, str]:
-    """Create the dataset item. Returns (item_id, error)."""
+            expected_output_json: str, requirement_ids: list[str],
+            adapter=None) -> tuple[str, str]:
+    """Create the dataset item. Returns (item_id, error). The SDK client comes from the
+    Companion Adapter when the live Surface hands one in (Spec G · G5, #144); the trace
+    lookup below stays on this module's own REST reader, beside the adapter."""
     try:
         expected = json.loads(expected_output_json)
     except json.JSONDecodeError as exc:
@@ -107,9 +110,9 @@ def promote(cfg: Config, *, trace_id: str, dataset_name: str, slice_name: str,
     except requests.RequestException as exc:
         return "", f"trace lookup failed: {exc}"
 
-    from langfuse_synth_core.lfclient import get_langfuse
+    from ..clients import langfuse as get_langfuse
 
-    lf = get_langfuse(cfg)
+    lf = get_langfuse(cfg, adapter)
     item = lf.create_dataset_item(
         dataset_name=dataset_name,
         input=trace.get("input") or {},

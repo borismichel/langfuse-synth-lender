@@ -1,0 +1,36 @@
+# Runs the kit's pytest suite on every push / PR so the byte-identical gates fail loudly in
+# CI, not just locally. This repo previously had only the publish (tag) workflow (Spec G · G5,
+# #144). GitHub-hosted runner: the repo is PUBLIC, so hosted minutes are free and the
+# infrastructure policy requires GitHub-hosted CI/CD (no self-hosted runners on public repos).
+#
+# Installing `.[dev,playground]` pulls langfuse-synth-core[authoring] (the determinism golden
+# gate's marker dep, jsonschema) AND langfuse-synth-core[companion] (the live-UI web-server
+# deps, fastapi/uvicorn) — so BOTH the spool-determinism golden and the 22 presenter-visible
+# UI goldens actually RUN here rather than skip. The suite is network-free: the UI goldens
+# render through Starlette's in-process TestClient against an offline catalog, the adapter
+# wiring suite runs on fakes, and the determinism golden runs its seed in a subprocess under
+# its own deny-LLM egress block — so no project secret ever touches this job (GITHUB_TOKEN
+# aside, which GitHub mints for the run).
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"  # matches the runtime image (Dockerfile: python:3.12-slim)
+      - name: Install (runtime + dev + playground, from the pinned core)
+        run: pip install -e '.[dev,playground]'
+      - name: Test (spool-determinism golden + presenter-visible UI goldens + unit suite)
+        run: pytest -q

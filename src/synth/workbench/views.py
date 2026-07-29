@@ -99,7 +99,16 @@ def _role_of(request) -> str:
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
-def build_router(cfg: Config):
+def build_router(cfg: Config, adapter=None):
+    """The workbench router, mounted under ``/workbench`` by ``live/app.create_app``.
+
+    ``adapter`` is the Companion Adapter (Spec G · G5, #144), threaded to the three actions
+    that talk to Langfuse or a model — triggering a run, promoting a reviewed trace, and
+    recording a sign-off — so the workbench takes ready clients from the shell like the rest
+    of the Surface. Everything that makes the workbench *divergent* (the mounted router
+    itself, its 303 redirects, its plain-text evidence responses, its own paginated REST
+    reads with their offline-degradation contract) stays here, beside the adapter: none of it
+    needed a concession from the boundary, which is what this ring set out to find out."""
     r = APIRouter()
     brand = cfg.workbench.brand
 
@@ -404,7 +413,7 @@ def build_router(cfg: Config):
             spec = spec.model_copy(update={
                 "freeze_dataset_version": datetime.now(timezone.utc)
                 .strftime("%Y-%m-%dT%H:%M:%SZ")})
-        run_id, err = runner_mod.start_run(cfg, spec)
+        run_id, err = runner_mod.start_run(cfg, spec, adapter=adapter)
         if err:
             return RedirectResponse(local(f"/workbench/specs/{spec_ref}?err={err}"), status_code=303)
         return RedirectResponse(local(f"/workbench/runs/{run_id}"), status_code=303)
@@ -688,7 +697,7 @@ def build_router(cfg: Config):
         item_id, err = _promote(cfg, trace_id=trace_id, dataset_name=dataset_name,
                                 slice_name=slice_name,
                                 expected_output_json=expected_output_json,
-                                requirement_ids=reqs)
+                                requirement_ids=reqs, adapter=adapter)
         _catalog(cfg, force=True)
         if err:
             return RedirectResponse(local(f"/workbench/promote?err={err[:300]}"), status_code=303)
@@ -702,7 +711,8 @@ def build_router(cfg: Config):
         run = load_run(cfg, run_id)
         if run is None:
             return RedirectResponse(local("/workbench/runs"), status_code=303)
-        ok, msg = sign_off(cfg, run, role=_role_of(request), name=name, note=note)
+        ok, msg = sign_off(cfg, run, role=_role_of(request), name=name, note=note,
+                           adapter=adapter)
         return RedirectResponse(local(f"/workbench/runs/{run_id}?msg={'signed off. ' + msg if ok else msg}"),
                                 status_code=303)
 

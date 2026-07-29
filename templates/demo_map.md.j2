@@ -1,7 +1,8 @@
 # DEMO_MAP.md — checklist row → UI path → object (spec v2 §9.6)
 
 > Generated from run state; ids are this run's real data. "UI path" is relative to
-> the project; deep links resolve when the project id is known.
+> the project; deep links resolve when the project id is known. Every checklist row is a
+> Langfuse UI path — the featured walk needs no shell and no Companion.
 
 | # | Checklist row | UI path | Open this | Anchor |
 |---|---|---|---|---|
@@ -30,4 +31,4 @@
 | Quality-dip ambience | Dashboards / scores over time | groundedness dips in the v{{ prompt_versions.production - 1 }} era, recovers at v{{ prompt_versions.production }} |
 | Nightly batch line | Traces → tag `batch:covenant-monitor` | ambience only — never demoed |
 | German analysts | Traces → tag `language:de` | consistent per analyst AND per session (German-named users) |
-| Workbench | `synth playground` → /workbench | branded governance layer: designer, runs, coverage, promote, evidence |
+| Companion (optional escalation) | Started from the deployment page; live-asset links to `/` · `/dossier` · `/workbench` | live copilot · validation memo · branded governance layer (designer → run, coverage, promote, sign-off, evidence — alpha). Off the featured path |

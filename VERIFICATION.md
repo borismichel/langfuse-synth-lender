@@ -51,8 +51,10 @@ synth submit --prefab paren --model claude-sonnet-4-6                      # liv
 ```
 
 Rehearse `certify` at least once against the venue network. If the venue has no model
-access, the break-glass path in `DEMO_SCRIPT.md` (seeded record + `--offline`) carries
-the story.
+access, the break-glass path in `DEMO_SCRIPT.md` carries the story: the whole five-row
+walk reads the seeded record, so only the live copilot and the optional workbench run
+are lost. (`certify --offline`, which proves suite self-consistency without a model,
+lives in that runbook's developer-mode section — it is not a presenter beat.)
 
 ## Known cosmetics (say it before they ask)
 

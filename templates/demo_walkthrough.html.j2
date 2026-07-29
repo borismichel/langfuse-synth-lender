@@ -64,7 +64,10 @@
   <div class="eyebrow">Meridian Commercial Bank · Model-Risk Certification</div>
   <h1>Demo Walkthrough<br>LLM certification for a lending copilot</h1>
   <p class="sub">Build a certification suite once from production traces with human-validated ground truth,
-  then certify any new model — prompt + parameters + model — with one command. Five governance requirements, each two clicks deep.</p>
+  then certify any new model — prompt + parameters + model — as one experiment run. Five governance requirements, each two clicks deep.</p>
+  <p class="sub"><strong>You need a browser and nothing else.</strong> The five-row walk runs entirely in the Langfuse UI over the
+  seeded project — no shell, no live model call. The Certification Workbench is an <strong>optional escalation</strong>, opened from
+  the deployment's live-asset links; every <code>synth</code> command sits in the developer-mode section at the bottom.</p>
 
   <hr>
 
@@ -78,7 +81,8 @@
       <dt>Runs</dt><dd><code>{{ baseline.name }}</code> · <code>{{ cand_a.name }}</code> · <code>{{ cand_b.name }}</code> — <span class="pill fail">candidate B fails numeric accuracy {{ '%.1f%%'|format((cand_b.pass_rates or {}).get('numeric_lookup', 0)*100) }} vs ≥{{ '%.0f%%'|format(gates.get('numeric_lookup', 0.95)*100) }}</span></dd>
       <dt>Queue</dt><dd><code>{{ queue.name }}</code> — {{ queue.completed }} completed, {{ queue.pending }} pending (alive)</dd>
     </dl>
-    <p class="note">The <strong>Evaluators</strong> page is pre-populated by <code>synth evaluators</code> (seed step 5b):
+    <p class="note">The <strong>Evaluators</strong> page is pre-populated by the deploy's <code>evaluators</code> pipeline step
+    (non-fatal, and it needs a host exposing the evaluator API — glance at the page before you go on):
     3 code evaluators (<code>numeric_accuracy</code>, <code>citation_format</code>, <code>escalation_correctness</code> — no LLM connection)
     + 2 LLM judges (<code>groundedness</code>, <code>citation_coverage</code>, against the project's Anthropic connection).
     Code evaluators + judges are scoped to the suite via <code>target=experiment</code> rules (sampling 1.0); the
@@ -113,7 +117,8 @@
       {{ queue.completed }} completed human reviews, {{ queue.pending }} pending — including
       <code>{{ flagged.trace_id }}</code> ({{ flagged.borrower }}: copilot said €{{ '{:,}'.format(flagged.incumbent_figure_eur) }},
       filing prints €{{ '{:,}'.format(flagged.correct_figure_eur) }}; the analyst's words are on the trace).
-      <strong>Live beat:</strong> complete that review and promote it into the suite (workbench → promote, or UI).</p>
+      <strong>Live beat, in the UI:</strong> open that queue item, score it, mark it complete — then promote the corrected turn
+      into <code>{{ suite_info.name }}</code> with <strong>Add to dataset</strong> on the trace. Ground truth grows on screen.</p>
       <p class="say">The suite is what production actually got asked, with a named human behind every expected answer.</p>
     </div>
   </div>
@@ -146,8 +151,9 @@
       <code>mean_groundedness</code>, <code>rate_numeric_accuracy</code>, <code>verdict</code> (plus
       <code>mean_citation_coverage</code>, <code>rate_citation_format</code>, <code>rate_escalation_correctness</code>).
       Read across — candidate B's <code>rate_numeric_accuracy</code> and <code>mean_groundedness</code> are visibly
-      lowest. <em>For per-item detail, the per-item score columns fill when you trigger the evaluators on a run (rules
-      don't backfill the seeded runs).</em></p>
+      lowest. <em>The per-item score columns stay empty on these runs — evaluator rules never backfill, and the seeded runs
+      predate them; the run-level rollups above carry the verdict. Per-item scores fill on a run you trigger yourself
+      (see <strong>Optional escalation</strong>).</em></p>
       <p>Drill into one of candidate B's red items: the <code>numeric_accuracy</code> comment states exactly which figure
       diverged from the printed table. A real decision, on screen: ship A, reject B.</p>
       <p class="say">Certification of any change — model, prompt, parameters — is an experiment run, not a six-week project.</p>
@@ -185,29 +191,64 @@
       <li><strong>Prompt history:</strong> {{ prompt_versions.latest }} versions with commit messages; the
       v{{ prompt_versions.production - 1 }} era shows a mild groundedness dip that the v{{ prompt_versions.production }} "fix"
       recovers — monitoring → re-certification, if a stakeholder pulls the thread.</li>
-      <li><strong>Live certification:</strong> <code>synth certify --model {{ candidate_a_model }} --gate</code> runs the same
-      pipeline with real model calls; the Validation Workbench (<code>synth playground</code> → /workbench) is the branded
-      governance layer on the same APIs.</li>
     </ul>
+  </div>
+
+  <p class="section-label">Optional escalation · the Companion (live surfaces)</p>
+  <div class="card">
+    <p style="margin:0 0 10px;font-size:13.5px;color:var(--text-secondary)">Only if the prospect wants more than the record.
+    Start the Companion from the deployment page; its live-asset links open three routes — <strong>/</strong> the analyst copilot
+    (the room asks its own filing question and watches the trace land next to the seeded history), <strong>/dossier</strong> the
+    rendered validation memo, and <strong>/workbench</strong> the branded governance layer on the same APIs (spec designer,
+    evaluator injection, runs, coverage, promote, sign-off). The workbench is flagged <strong>alpha</strong> — preview it before
+    you show it.</p>
+    <p style="margin:0;font-size:13.5px;color:var(--text-secondary)"><strong>Live certification, no shell:</strong>
+    /workbench → <strong>designer</strong> → compose the spec (release × suites × evaluators × gates,
+    <code>{{ candidate_a_model }}</code> as the release under test) → <strong>Save spec →</strong>, then
+    <strong>Run this experiment →</strong> on the spec page. The run makes real model calls on the deployment's shared LLM key
+    (capped) — tick one small slice on stage, not the full {{ suite_info["items"] }} items. The run page carries the verdict,
+    sign-off and the evidence pack.</p>
   </div>
 
   <div class="mini">
     <div class="card">
       <h4>Break-glass</h4>
-      <p style="margin:0;font-size:13.5px;color:var(--text-secondary)">No model access at the venue? The seeded record
-      <strong>is</strong> the demo — all five rows work without a single live call. <code>synth certify --offline</code>
-      proves suite self-consistency on screen. <code>synth verify</code> asserts every anchor above before you go on stage;
-      <code>synth probe</code> validates backdated ingestion on a new host before bulk seeding.</p>
+      <p style="margin:0;font-size:13.5px;color:var(--text-secondary)">No model access at the venue? Nothing in the walk above
+      needs one — all five rows read the seeded record, and seeding made <strong>zero</strong> model calls. Only the live copilot
+      and the optional workbench run touch a model; drop both and the story is intact. Every anchor above was asserted by the
+      deploy's <code>verify</code> gate, which is fatal — the deployment only reached green because each one landed.</p>
     </div>
     <div class="card">
       <h4>Reset</h4>
-      <p style="margin:0;font-size:13.5px;color:var(--text-secondary)">Teardown is project-level: fresh project, keys in
-      <code>.env</code>, <code>synth seed</code> (deterministic — identical ids). On Cloud free tier use
-      <code>--config config/cloud-demo.yaml</code> and check current event caps first.</p>
+      <p style="margin:0;font-size:13.5px;color:var(--text-secondary)">Teardown is project-level and depot-native:
+      <strong>deploy again</strong> against a fresh Langfuse project. Re-seeding the same project is safe (deterministic upsert —
+      identical ids); changing coverage needs a fresh project.</p>
     </div>
   </div>
 
-  <footer>Generated from run state by <code>synth script</code> · companions: DEMO_SCRIPT.md · DEMO_MAP.md</footer>
+  <hr>
+
+  <p class="section-label">Developer mode · not a presenter beat</p>
+  <div class="card">
+    <p style="margin:0 0 10px;font-size:13.5px;color:var(--text-tertiary)">Everything below runs this kit from a shell, outside
+    the depot. <strong>No step in the walk above needs it</strong>: in a depot deployment the pipeline already ran these for you,
+    and a presenter has no shell.</p>
+    <pre style="margin:0;font-family:var(--font-mono);font-size:12px;overflow-x:auto;color:var(--text-secondary)">synth plan       --config config/demo.yaml   # volumes + billable estimate (the confirm gate)
+synth seed       --config config/demo.yaml   # deterministic backdated ingest
+synth evaluators --config config/demo.yaml   # populate the project's Evaluators page
+synth verify     --config config/demo.yaml   # assert every anchor in this walkthrough
+synth probe      --config config/demo.yaml   # validate backdated ingestion on a new host
+synth memo       --config config/demo.yaml   # render CERT_MEMO.md
+synth script     --config config/demo.yaml   # re-render this walkthrough, DEMO_SCRIPT, DEMO_MAP
+
+synth certify --config config/demo.yaml --model {{ candidate_a_model }} --gate   # headless live certification
+synth certify --config config/demo.yaml --offline   # suite self-consistency, no model calls</pre>
+    <p style="margin:10px 0 0;font-size:13.5px;color:var(--text-tertiary)"><code>synth playground</code> serves the Companion
+    locally (the depot starts it for you). On the Cloud free tier use <code>--config config/cloud-demo.yaml</code> and check
+    current event caps first.</p>
+  </div>
+
+  <footer>Generated from run state · companions: DEMO_SCRIPT.md · DEMO_MAP.md</footer>
 
 </div>
 </body>

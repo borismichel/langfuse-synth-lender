@@ -44,8 +44,20 @@ class _FakePrompt:
 
 
 class _FakeLangfuse:
+    def __init__(self):
+        self.dataset_items, self.flushed = [], 0
+
     def get_prompt(self, *a, **kw):
         return _FakePrompt()
+
+    def create_dataset_item(self, **kw):
+        from types import SimpleNamespace
+
+        self.dataset_items.append(kw)
+        return SimpleNamespace(id="item-fake-0001")
+
+    def flush(self):
+        self.flushed += 1
 
 
 class _FakeIngestor:
@@ -259,6 +271,46 @@ def test_workbench_router_is_handed_the_adapter(cfg, adapter, monkeypatch, tmp_p
     resp = client.post("/workbench/runs", data={"spec_ref": spec.ref}, follow_redirects=False)
     assert resp.status_code == 303
     assert seen["adapter"] is adapter
+
+
+def test_promote_writes_the_dataset_item_through_the_adapter(cfg, adapter, monkeypatch,
+                                                             tmp_path):
+    """The promote wizard's SDK write was threaded through the adapter in #144 but sat
+    unreachable behind the route's pre-existing crash (depot issue #155). With that fixed,
+    this proves the newly-live path end to end: POST /workbench/promote resolves its client
+    via ``adapter.langfuse()``, the dataset item carries the trace provenance, and the write
+    is flushed — the trace *lookup* stays on the module's own REST reader by design."""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    import synth.workbench.promote as promote_mod
+    import synth.workbench.views as views_mod
+    from synth.live.app import create_app
+    from synth.workbench.catalog import offline_catalog
+
+    cfg.workbench.results_dir = str(tmp_path / ".workbench")
+    monkeypatch.setattr(views_mod, "fetch_catalog", lambda c, with_items=True: offline_catalog(c))
+    views_mod._CATALOG_CACHE.clear()
+    monkeypatch.setattr(promote_mod, "_get",
+                        lambda base, path, params=None: {"input": {"question": "op profit?"}})
+
+    client = TestClient(create_app(cfg, adapter))
+    resp = client.post("/workbench/promote", data={
+        "trace_id": "a" * 32, "dataset_name": "certification-suite",
+        "slice_name": "production_flagged", "requirement_ids": "MRM-ACC-1, MRM-ACC-2",
+        "expected_output_json": '{"figures": {"operating_profit_eur": -2431000}}',
+    }, follow_redirects=False)
+
+    assert resp.status_code == 303
+    from urllib.parse import unquote
+
+    assert "ok=item item-fake-0001 in certification-suite" in unquote(resp.headers["location"])
+    item = adapter.lf.dataset_items[0]
+    assert item["source_trace_id"] == "a" * 32
+    assert item["input"] == {"question": "op profit?"}
+    assert item["expected_output"] == {"figures": {"operating_profit_eur": -2431000}}
+    assert item["metadata"]["requirement_ids"] == ["MRM-ACC-1", "MRM-ACC-2"]
+    assert adapter.lf.flushed == 1
 
 
 # ---------------------------------------------------------------------------

@@ -10,11 +10,9 @@ This kit is the deliberate stress case (#25 D8): its Surface is ~4.6× EV's, and
 plain-text responses, and raw REST reads — is exactly the divergent Surface the boundary must
 carry without absorbing scenario knowledge. So the gate covers the whole workbench, not a
 token page: overview, designer, specs (list + detail), runs (list + detail), compare,
-coverage, and the evidence pack, alongside the copilot index and the ``/dossier``. Each is
-captured bare *and* ``LIVE_BASE_PATH``-prefixed, since the portal serves live deployments
-behind ``/live/{id}`` (LAN-357). ``/workbench/promote`` is the one route with no golden —
-it raises before rendering a byte, and has since long before this migration (depot issue
-#155); see ``PROMOTE_ROUTE`` below.
+coverage, the promote wizard, and the evidence pack, alongside the copilot index and the
+``/dossier``. Each is captured bare *and* ``LIVE_BASE_PATH``-prefixed, since the portal
+serves live deployments behind ``/live/{id}`` (LAN-357).
 
 Discipline mirrors the kit's spool golden (``tests/golden/lender_spool.ndjson``): a committed
 byte oracle plus a render-here-and-compare check. Every page renders deterministically with
@@ -52,14 +50,8 @@ ROUTES = {
     "wb_compare": f"/workbench/compare?a={RUN_ID}&b={RUN_ID_B}",
     "wb_coverage": "/workbench/coverage",
     "wb_evidence": f"/workbench/evidence/{RUN_ID}",
+    "wb_promote": "/workbench/promote",
 }
-
-# ``/workbench/promote`` is deliberately NOT in ROUTES: it raises before it renders a byte,
-# on `main`, on both shipped configs, and did so before this migration — see
-# ``test_promote_route_carries_its_pre_existing_break_across_the_swap`` and the follow-up,
-# depot issue #155. It has no presenter-visible output to bless. Pinned separately so the
-# swap is still proven not to have caused or changed it.
-PROMOTE_ROUTE = "/workbench/promote"
 
 
 def _seed_state() -> None:
@@ -230,28 +222,10 @@ def test_workbench_non_html_responses_hold(monkeypatch, tmp_path, mode, base_pat
     assert resp.status_code == 404 and resp.text == "unknown run"
 
 
-@pytest.mark.parametrize("mode, base_path", [("bare", None), ("prefixed", "/live/x")])
-def test_promote_route_carries_its_pre_existing_break_across_the_swap(monkeypatch, tmp_path,
-                                                                     mode, base_path):
-    """``/workbench/promote`` reads ``cfg.certification.queues.intake.name``, but the config
-    model has ``certification.queue`` — no ``queues``. The route therefore raises before
-    emitting a byte, on both shipped configs, and has done since before this migration; the
-    byte-identical gate found it because nothing had ever rendered the page in a test.
-
-    Fixing it is NOT this slice's business — a shell-swap moves plumbing, not scenario code —
-    so it is filed as depot issue #155 and pinned here instead. This asserts the
-    *pre-existing* failure is unchanged by the swap: same exception, same attribute, still
-    never a silent wrong page. When #155 lands, delete this test and add ``wb_promote`` to
-    ``ROUTES`` so the page joins the byte-identical gate."""
-    pytest.importorskip("fastapi")
-    client = _client(monkeypatch, tmp_path, base_path)
-    with pytest.raises(AttributeError, match="queues"):
-        client.get(PROMOTE_ROUTE)
-
-
 def test_goldens_capture_the_real_surface_not_an_empty_one():
     """Guard the fixtures themselves: each golden is the *populated* page (not a placeholder
-    or an offline stub), and the prefixed variants actually carry ``/live/x`` — so the
+    or an offline stub) — except promote, whose offline degradation notice *is* its
+    deterministic surface — and the prefixed variants actually carry ``/live/x`` — so the
     byte-identical assertions above fence the real presenter surface."""
     def bare(name: str) -> str:
         return (GOLDEN / f"{name}.bare.html").read_text()
@@ -273,5 +247,9 @@ def test_goldens_capture_the_real_surface_not_an_empty_one():
     assert "regressed" in bare("wb_compare") or "improved" in bare("wb_compare")
     assert "UNCOVERED" in bare("wb_coverage")
     assert "UNSIGNED" in bare("wb_evidence")
+    # promote (fixed by depot issue #155): the offline degradation notice, never a raw 500
+    assert "offline — promotion needs the live instance" in bare("wb_promote")
+    assert "Queue is clear" in bare("wb_promote")
+    assert "/live/x/workbench/promote" in prefixed("wb_promote")
     assert "/live/x/workbench/runs" in prefixed("wb_run_detail")
     assert "/live/x/workbench/coverage" in prefixed("wb_overview")

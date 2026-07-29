@@ -683,7 +683,7 @@ def build_router(cfg: Config, adapter: "CompanionAdapter | None" = None):
             </form>""")
         body = f"""{_eyebrow(cfg, 'suite intake')}{_nav('promote')}
         <h1>Promote reviewed traces <span class='mark'>into the suite</span></h1>
-        <p class='sub'>Completed {_e(cfg.certification.queues.intake.name)} reviews
+        <p class='sub'>Completed {_e(cfg.certification.queue.name)} reviews
           {_lf(Links.from_cfg(cfg).queues(), 'queues in Langfuse →')} that are not yet
           suite items. The reviewer's corrected figures become the expected output — with
           provenance (<code>sourceTraceId</code>) and requirement links.</p>

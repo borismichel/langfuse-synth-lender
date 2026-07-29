@@ -32,9 +32,9 @@ _PROMPTS = {
 
 
 def run_enrich(cfg: Config, n: int = 50, log: Callable[[str], None] = print) -> Path:
-    from .llm import get_llm
+    from .clients import llm as get_client
 
-    llm = get_llm(cfg.certification.candidate_b_model)  # the cheap tier
+    llm = get_client(cfg.certification.candidate_b_model)  # the cheap tier
     model = llm.model
     per_kind = max(3, n // len(_PROMPTS))
     out: dict[str, list[str]] = {}

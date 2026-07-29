@@ -178,8 +178,13 @@ project-level** (fresh project + re-seed; deterministic ids regenerate identical
 ## Tests
 
 ```bash
-pip install pytest && pytest -q   # 51 tests: determinism, truth table, run verdicts,
-                                  # session shape, v2 trace structure, artifacts, workbench
+pip install -e '.[dev,playground]' && pytest -q
+# determinism + spool golden, truth table, run verdicts, session shape, v2 trace structure,
+# artifacts, workbench — plus the two gates the Companion Adapter swap added: the 22
+# presenter-visible UI goldens (tests/golden/ui/) and the adapter wiring suite.
+# Install BOTH extras: [dev] brings the golden gate's authoring deps and [playground] the
+# web-server deps, and without them those gates SKIP rather than run. The suite is
+# network-free — it is exactly what CI runs (.github/workflows/ci.yml).
 ```
 
 ## Image releases

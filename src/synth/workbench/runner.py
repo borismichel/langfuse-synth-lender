@@ -18,12 +18,17 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
+from typing import TYPE_CHECKING
+
 from ..config import Config
 from ..grading import item_passes
 from .links import Links
 from .registry import discover_tasks, evaluator_by_name, fingerprints
 from .results import ItemRow, WorkbenchRun, gate_verdicts, save_run
 from .specs import ExperimentSpec
+
+if TYPE_CHECKING:
+    from langfuse_synth_core.companion import CompanionAdapter
 
 _LOCK = threading.Lock()
 RUNS: dict[str, dict] = {}   # run_id -> {state, progress, total, message}
@@ -33,14 +38,20 @@ def status(run_id: str) -> dict:
     return RUNS.get(run_id, {})
 
 
-def start_run(cfg: Config, spec: ExperimentSpec) -> tuple[str | None, str]:
-    """Kick off a background run. Returns (run_id, error)."""
+def start_run(cfg: Config, spec: ExperimentSpec, *,
+              adapter: "CompanionAdapter | None" = None) -> tuple[str | None, str]:
+    """Kick off a background run. Returns (run_id, error).
+
+    ``adapter`` is the Companion Adapter (Spec G · G5, #144): when the live Surface hands one
+    in, the run's Langfuse SDK and LLM clients come from it, with the LLM resolved for the
+    *spec\'s release model* — the workbench\'s per-run model choice, the same seam the
+    copilot\'s model selector uses."""
     with _LOCK:
         if any(s.get("state") == "running" for s in RUNS.values()):
             return None, "a run is already in progress (single-flight for the demo)"
         run_id = f"wb-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
         RUNS[run_id] = {"state": "running", "progress": 0, "total": 0, "message": "starting"}
-    t = threading.Thread(target=_execute, args=(cfg, spec, run_id), daemon=True)
+    t = threading.Thread(target=_execute, args=(cfg, spec, run_id, adapter), daemon=True)
     t.start()
     return run_id, ""
 
@@ -76,17 +87,18 @@ def _wrap_evaluators(names: list[str]):
     return out
 
 
-def _execute(cfg: Config, spec: ExperimentSpec, run_id: str) -> None:
+def _execute(cfg: Config, spec: ExperimentSpec, run_id: str,
+             adapter: "CompanionAdapter | None" = None) -> None:
     started = datetime.now(timezone.utc).isoformat()
     shas = fingerprints(spec.evaluators)
     run = WorkbenchRun(run_id=run_id, spec_ref=spec.ref, spec_hash=spec.spec_hash,
                        spec=spec.model_dump(), release=spec.release.model_dump(),
                        evaluator_shas=shas, started=started)
     try:
-        from langfuse_synth_core.lfclient import get_langfuse
-        from ..llm import get_llm
+        from ..clients import langfuse as get_langfuse
+        from ..clients import llm as get_llm
 
-        lf = get_langfuse(cfg)
+        lf = get_langfuse(cfg, adapter=adapter)
 
         # resolve + pin the prompt version for the metadata record
         rel = spec.release
@@ -97,7 +109,7 @@ def _execute(cfg: Config, spec: ExperimentSpec, run_id: str) -> None:
         release = {**rel.model_dump(), "prompt_version": prompt_version}
         run.release = release
 
-        task = _make_task(lf, get_llm(release["model"]), release)
+        task = _make_task(lf, get_llm(release["model"], adapter=adapter), release)
         evaluators = _wrap_evaluators(spec.evaluators)
         links = Links.from_cfg(cfg)
 

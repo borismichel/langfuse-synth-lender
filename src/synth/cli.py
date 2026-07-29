@@ -226,21 +226,45 @@ def submit(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
     typer.echo(f"  trace → {res['trace_url']}")
 
 
+# The live secrets the portal injects for this component (usecase.yaml
+# live_components[0].requires_secrets). The Companion Adapter reads them from the env and
+# hands the Surface ready clients only — it never sees a raw key (D4).
+LIVE_SECRETS = ["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LLM_API_KEY"]
+
+
 @app.command()
 def playground(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
                host: str = typer.Option("127.0.0.1", "--host"),
                port: int = typer.Option(8000, "--port")):
-    """Serve the analyst-copilot UI + /dossier (needs the `playground` extra:
-    pip install -e '.[playground]')."""
+    """Serve the analyst-copilot UI + /dossier + /workbench (needs the `playground` extra:
+    pip install -e '.[playground]').
+
+    Spec G · G5 (#144): the shell is the Companion Adapter. The fixed
+    ``--config/--host/--port`` invocation is the adapter's ``Invocation`` shape (the portal
+    templates only ``{config}``); the adapter binds ``host:port``, mounts its readiness health
+    route, and serves the Surface with graceful shutdown, handing every route — copilot,
+    dossier, and the mounted certification workbench — ready Langfuse/LLM clients. Scenario
+    code (routes, judges, prefabs, score contracts, trace shapes) is untouched."""
     cfg = _load(config)
     try:
-        import uvicorn
+        from langfuse_synth_core.companion import CompanionAdapter
+
         from .live.app import create_app
     except ImportError:
         typer.echo("playground deps missing — run: pip install -e '.[playground]'", err=True)
         raise typer.Exit(code=1)
+    # The adapter's own default model is the incumbent — the copilot's default selection and
+    # the headless default. A per-submission selection (the model selector, or a workbench
+    # spec's release model) rides `adapter.llm(model)`, which the deployment's LLM_MODEL pin
+    # still outranks.
+    adapter = CompanionAdapter(cfg, requires_secrets=LIVE_SECRETS,
+                               llm_model_default=cfg.certification.incumbent_model)
     typer.echo(f"→ playground on http://{host}:{port}  (the pinned production prompt is pulled live per question)")
-    uvicorn.run(create_app(cfg), host=host, port=port, log_level="warning")
+    # The full inherit path: build the Surface with the adapter (for its ready clients), bind
+    # host:port (the portal passes --host 0.0.0.0), mount the readiness route (its default
+    # /healthz — the manifest keeps the in-scene index `/` as the portal's liveness poll),
+    # then serve with graceful shutdown so the idle-reaper retires the container cleanly.
+    adapter.run(lambda ad: create_app(cfg, ad), host=host, port=port)
 
 
 if __name__ == "__main__":

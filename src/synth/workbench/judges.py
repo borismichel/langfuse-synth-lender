@@ -15,7 +15,7 @@ import os
 import requests
 
 from ..config import Config
-from ..llm import API_KEY_ENV, resolve_model, resolve_provider
+from langfuse_synth_core.companion.llm import API_KEY_ENV, resolve_model, resolve_provider
 from ..script import _CITATION_JUDGE, _GROUNDEDNESS_JUDGE
 
 # The two LLM-as-judge evaluators, named to match the score configs the rest of the

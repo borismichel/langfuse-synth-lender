@@ -40,14 +40,19 @@ target:
 
 llm:
   # Demo-time model calls (live playground + certify / workbench runs + the managed
-  # LLM-as-judge connection) route through the kit's provider layer (src/synth/llm.py).
+  # LLM-as-judge connection) route through the Companion Adapter's shared provider layer
+  # (langfuse_synth_core.companion.llm, since the Spec G · G5 shell-swap).
   # First provider = deploy-time default. The portal injects the selected provider's key
-  # via the LLM_API_KEY sentinel below, plus LLM_PROVIDER and (for OpenAI) LLM_MODEL.
+  # via the LLM_API_KEY sentinel below, plus LLM_PROVIDER and (for OpenAI) LLM_MODEL — the
+  # contract the adapter reads is unchanged.
   providers: [anthropic, openai]
   models:
     # Anthropic intentionally omitted: no LLM_MODEL is injected, so the kit keeps its
     # built-in candidate models — the multi-candidate certification comparison stays
-    # byte-for-byte unchanged. OpenAI routes to a single pinned model.
+    # byte-for-byte unchanged. This matters more since G5: LLM_MODEL is a deployment PIN
+    # that outranks both the adapter default AND the copilot's per-submission model
+    # selector, so injecting one here would collapse the incumbent-vs-candidate lever the
+    # whole demo turns on. OpenAI routes to a single pinned model (and accepts that cost).
     openai: gpt-4o
 
 base_config:

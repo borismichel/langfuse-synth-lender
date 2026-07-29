@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import html
 import json
+from typing import TYPE_CHECKING
 
 from ..config import Config
 from langfuse_synth_core.live.paths import local
 from .prefabs import build_prefabs, prefabs_by_key
 from .submit import submit, thumbs_down
 from langfuse_synth_core.live.theme import page
+
+if TYPE_CHECKING:
+    from langfuse_synth_core.companion import CompanionAdapter
 
 TITLE = "Meridian Commercial Bank — Analyst Copilot"
 
@@ -63,7 +67,14 @@ def _error_card(headline: str, exc: Exception) -> str:
     <a class="back" href="{local('/')}">← try again</a>"""
 
 
-def create_app(cfg: Config):
+def create_app(cfg: Config, adapter: "CompanionAdapter | None" = None):
+    """Build the live Surface: the copilot, the ``/dossier``, and the mounted workbench.
+
+    ``adapter`` is the Companion Adapter (Spec G · G5, #144). When present, every route that
+    talks to Langfuse or a model takes its ready clients from it — including the workbench
+    router, which plugs in as a Surface concern with no scenario knowledge pushed back the
+    other way. When absent — the render-only golden / base-path tests, which call nothing —
+    the clients fall back to the env, so pure rendering is unaffected either way."""
     from fastapi import FastAPI, Form
     from fastapi.responses import HTMLResponse
 
@@ -72,7 +83,7 @@ def create_app(cfg: Config):
     # the branded governance layer (spec designer / runs / coverage / promote / evidence)
     from ..workbench.views import build_router
 
-    app.include_router(build_router(cfg), prefix="/workbench")
+    app.include_router(build_router(cfg, adapter), prefix="/workbench")
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
@@ -94,7 +105,7 @@ def create_app(cfg: Config):
         if p is None:
             return page(_error_card("Unknown question", ValueError(prefab)), title=TITLE)
         try:
-            res = submit(cfg, p.question, model)
+            res = submit(cfg, p.question, model, adapter=adapter)
         except Exception as exc:  # noqa: BLE001 — render in-scene, never a raw 500
             return page(_error_card("We couldn't process that question", exc), title=TITLE)
         a, e = res["answer"], res["expected"]
@@ -128,7 +139,7 @@ def create_app(cfg: Config):
     @app.post("/flag", response_class=HTMLResponse)
     def flag(trace_id: str = Form(...), comment: str = Form("")) -> str:
         try:
-            res = thumbs_down(cfg, trace_id, comment)
+            res = thumbs_down(cfg, trace_id, comment, adapter=adapter)
         except Exception as exc:  # noqa: BLE001 — render in-scene, never a raw 500
             return page(_error_card("We couldn't log the flag", exc), title=TITLE)
         body = f"""

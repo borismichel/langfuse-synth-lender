@@ -12,15 +12,21 @@ from __future__ import annotations
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from ..agent import parse_answer
+from ..clients import ingestor as get_ingestor
+from ..clients import langfuse as get_langfuse
+from ..clients import llm as get_llm
 from ..config import Config
 from ..models import AnalystQuestion
 from langfuse_synth_core.rng import Rng
 from langfuse_synth_core.seed.events import score_event
-from langfuse_synth_core.seed.ingest import Ingestor, assert_demo_project
+from langfuse_synth_core.seed.ingest import assert_demo_project
 from ..seed.traces import TraceSpec, build_trace_events
+
+if TYPE_CHECKING:
+    from langfuse_synth_core.companion import CompanionAdapter
 
 
 def _live_answer(cfg: Config, lf, llm, q: AnalystQuestion) -> tuple:
@@ -42,18 +48,24 @@ def _live_answer(cfg: Config, lf, llm, q: AnalystQuestion) -> tuple:
 
 
 def submit(cfg: Config, question: AnalystQuestion, model: str | None = None,
-           *, log: Callable[[str], None] = print) -> dict:
+           *, adapter: "CompanionAdapter | None" = None,
+           log: Callable[[str], None] = print) -> dict:
     """Ask one live question and emit its trace. Returns the answer, the deterministic
-    ground truth (for contrast), the prompt version, and a deep link to the trace."""
+    ground truth (for contrast), the prompt version, and a deep link to the trace.
+
+    ``model`` is the copilot's model selector — the incumbent or the candidate under
+    certification. ``adapter`` is the Companion Adapter (Spec G · G5, #144): when the live
+    Surface hands one in, the ready Langfuse, LLM, and ingestion clients come from it (the
+    adapter owns secret intake and provider resolution, and resolves the selected ``model``);
+    without one — the headless ``synth submit`` path — the same clients are built off the core
+    resolution module, unchanged."""
     from ..agent import answer_deterministic
-    from langfuse_synth_core.lfclient import get_langfuse
-    from ..llm import get_llm
 
     base_url = cfg.target.base_url
     project_id, project_name = assert_demo_project(base_url, cfg.target.project_hint)
 
-    lf = get_langfuse(cfg)
-    llm = get_llm(model or cfg.certification.incumbent_model)
+    lf = get_langfuse(cfg, adapter=adapter)
+    llm = get_llm(model or cfg.certification.incumbent_model, adapter=adapter)
     model = llm.model  # the model actually resolved for the selected provider
     got, in_tok, out_tok, version, latency_ms, messages = _live_answer(cfg, lf, llm, question)
     log(f"· {model} (prompt v{version}) answered: {got.answer_type} — {got.answer[:90]} ({latency_ms}ms)")
@@ -67,7 +79,7 @@ def submit(cfg: Config, question: AnalystQuestion, model: str | None = None,
     events = build_trace_events(Rng(cfg.generation.seed), cfg, spec, version,
                                 answer_usage=(in_tok, out_tok),
                                 answer_latency_ms=latency_ms, answer_input=messages)
-    ing = Ingestor.from_env(base_url)
+    ing = get_ingestor(cfg, adapter=adapter)
     ing.extend(events)
     ing.flush()
 
@@ -84,10 +96,13 @@ def submit(cfg: Config, question: AnalystQuestion, model: str | None = None,
 
 
 def thumbs_down(cfg: Config, trace_id: str, comment: str,
-                *, log: Callable[[str], None] = print) -> dict:
+                *, adapter: "CompanionAdapter | None" = None,
+                log: Callable[[str], None] = print) -> dict:
     """Attach an ``analyst_feedback = down`` score (with the analyst's comment) to a
     previously-emitted trace — the same signal that feeds certification-suite intake.
-    Idempotent per trace (the score id is derived from the trace id)."""
+    Idempotent per trace (the score id is derived from the trace id). ``adapter`` supplies the
+    ready ingestion client when the live Surface hands one in (Spec G · G5, #144); otherwise
+    it is built off the env, unchanged."""
     base_url = cfg.target.base_url
     project_id, _ = assert_demo_project(base_url, cfg.target.project_hint)
     note = (comment or "").strip() or "analyst flagged this answer"
@@ -96,7 +111,7 @@ def thumbs_down(cfg: Config, trace_id: str, comment: str,
                      value="down", data_type="CATEGORICAL",
                      timestamp=datetime.now(timezone.utc),
                      trace_id=trace_id, environment="production", comment=note)
-    ing = Ingestor.from_env(base_url)
+    ing = get_ingestor(cfg, adapter=adapter)
     ing.add(ev)
     ing.flush()
     log(f"· thumbs-down logged on {trace_id[:12]}…: {note[:60]}")

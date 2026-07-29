@@ -220,6 +220,30 @@ def test_evidence_pack_contents(cfg):
     assert json.loads(md.split("```json")[1].split("```")[0])  # canonical spec embedded
 
 
+def test_judge_key_guard_is_provider_aware():
+    """The managed-judge connection upsert must never clobber a real project connection with
+    a .env placeholder. Re-homed here in Spec G · G5 (#144): it used to live in
+    test_llm_provider.py, deleted alongside the kit's llm.py — but this guard covers the
+    kit's own scenario code (workbench/judges), not the provider routing that moved to core."""
+    from synth.workbench import judges
+
+    assert judges._looks_like_real_key("anthropic", "sk-ant-" + "x" * 50)
+    assert not judges._looks_like_real_key("anthropic", "sk-ant-...")  # .env placeholder
+    assert judges._looks_like_real_key("openai", "sk-proj-" + "x" * 50)
+    assert not judges._looks_like_real_key("openai", "sk-...")
+
+
+def test_judge_provider_fallback_capitalises(monkeypatch):
+    """No connections reachable -> capitalised provider id (matches the UI registration).
+    Re-homed with the guard above (#144)."""
+    from synth.workbench import judges
+
+    monkeypatch.setattr(judges.requests, "get",
+                        lambda *a, **k: (_ for _ in ()).throw(judges.requests.RequestException()))
+    assert judges._judge_provider("http://x", "anthropic") == "Anthropic"
+    assert judges._judge_provider("http://x", "openai") == "Openai"
+
+
 def test_code_evaluators_survive_string_output():
     """Regression: a UI Prompt Experiment yields a TEXT/JSON-string output, so the
     code evaluators must coerce before .get() — never raise 'str' object has no

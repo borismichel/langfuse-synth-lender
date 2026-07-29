@@ -1,8 +1,8 @@
 # MRM Lending-Copilot Certification
 
-A **Demo Depot cartridge**: this repo is a complete Demo Package — the Spool, the
-Presenter Runbook, and a live Companion — that the depot deploys **as-is** from its
-catalog. An operator picks it in the portal, points it at a demo Langfuse project
+A **Demo Depot cartridge**: this repo is a complete Demo Package that the depot
+deploys **as-is** from its catalog, landing the Run-Triad — the Spool, the
+Presenter Runbook, and a live Companion. An operator picks it in the portal, points it at a demo Langfuse project
 (Cloud or self-hosted), and gets a fully seeded, presentable environment. Nothing
 on this page needs installing to *run* the demo; everything developer-facing lives
 at the bottom, under
@@ -56,14 +56,14 @@ Deploying this kit lands everything it takes to present the demo:
    **Deploy this demo**. Connect a Langfuse demo project — the kit refuses any
    project whose name doesn't contain `demo`, and the check runs before any job
    starts, so a customer's production project is never at risk.
-2. The pipeline runs this kit's own Recipe: it first materializes the
-   deterministic Spool without writing anything, pauses with the exact
-   billable-units estimate for your OK, then replays the Spool into your
-   project and runs the kit's own `verify` to prove every demo anchor landed.
-   Seeding also populates the project's **Evaluators** page (three code
-   evaluators + two LLM judges, scoped to the suite); the judges bind to the
-   project's Anthropic LLM connection, configured once in Langfuse project
-   settings.
+2. The pipeline pauses with the exact billable-units estimate for your OK
+   before anything is written, then runs this kit's own Recipe — materializing
+   the deterministic Spool and replaying it into your project — and finishes
+   with the kit's own `verify`, proving every demo anchor landed. On hosts
+   exposing the evaluator API (Cloud, current self-hosted), seeding also
+   populates the project's **Evaluators** page (three code evaluators + two
+   LLM judges, scoped to the suite); the judges bind to the project's
+   Anthropic LLM connection, configured once in Langfuse project settings.
 3. Present from the **Presenter Runbook** on the deployment page and the seeded
    Langfuse project.
 4. The Companion is the encore: it is never running by default — start it from

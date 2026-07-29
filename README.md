@@ -1,4 +1,16 @@
-# Langfuse Demo Data Synthesiser — MRM Lending-Copilot Certification (Spec v2)
+# MRM Lending-Copilot Certification
+
+A **Demo Depot cartridge**: this repo is a complete Demo Package that the depot
+deploys **as-is** from its catalog, landing the Run-Triad — the Spool, the
+Presenter Runbook, and a live Companion. An operator picks it in the portal, points it at a demo Langfuse project
+(Cloud or self-hosted), and gets a fully seeded, presentable environment. Nothing
+on this page needs installing to *run* the demo; everything developer-facing lives
+at the bottom, under
+[Development and running outside the depot](#development-and-running-outside-the-depot).
+
+**The story in one line:**
+
+> production runs → `certification-suite` curated from annotated traces → three seeded experiment runs (baseline passes · candidate A passes better/cheaper · **candidate B fails the numeric-accuracy gate**) → all five score-method types on one surface.
 
 ## The business case & story arc
  
@@ -14,38 +26,69 @@
 4. **The catch.** Deterministic checks, LLM judges, and human reviewers all converge on the same verdict, so the governance gate stops candidate B before it ships.
 5. **One evidence trail.** All five score-method types, the same vocabulary across production traces and certification runs, on one surface a model-risk officer signs off.
 
----
- 
-Seed a Langfuse project (Cloud free tier or self-hosted) with realistic telemetry and pre-built certification objects for the MRM lending-copilot scenario: a commercial lender's analyst copilot over financial filings, certified for any change (model, prompt, parameters) through an automated pipeline: production traces → human-validated ground truth → comparative experiment runs → one evidence trail.
- 
-> production runs → `certification-suite` curated from annotated traces → three seeded experiment runs (baseline passes · candidate A passes better/cheaper · **candidate B fails the numeric-accuracy gate**) → all five score-method types on one surface.
+**This kit tells the certification story:** a commercial lender's analyst
+copilot over financial filings, certified for any change (model, prompt,
+parameters) through an automated pipeline — production traces → human-validated
+ground truth → comparative experiment runs → one evidence trail.
 
---- 
+## What's in the package (the Run-Triad)
 
-## Quick start
+Deploying this kit lands everything it takes to present the demo:
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
-cp .env.example .env                     # LANGFUSE_BASE_URL + keys (Cloud or self-hosted)
+- **The Spool** — ~10–12k backdated traces in ~1,150 sessions, the 72-item
+  `certification-suite`, three seeded experiment runs, the
+  `certification-review` annotation queue, five golden traces, and all five
+  score-method types, batch-ingested into your Langfuse project.
+  Byte-deterministic and model-free; the full inventory is under
+  [What the seeded data contains](#what-the-seeded-data-contains-full-preset).
+- **The Presenter Runbook** — `DEMO_SCRIPT.md` (five checklist rows, each two
+  clicks deep) plus `DEMO_MAP.md` (checklist row → exact UI path → which golden
+  trace/object to open), generated at seed time and filled with *this run's
+  real* ids. The portal renders the runbook on the deployment page; it is the
+  talk track.
+- **The Companion** — the live analyst copilot, its `/dossier` (the rendered
+  validation memo), and the alpha `/workbench` governance surface. Started on
+  demand from the portal; see [The Companion, played live](#the-companion-played-live).
 
-# Cloud free tier? Check current event caps (https://langfuse.com/pricing), then:
-synth probe  --config config/cloud-demo.yaml   # ONE backdated trace; fails loudly if
-                                               # the host drops historical timestamps
-synth plan   --config config/cloud-demo.yaml   # prints the exact event count (adjust
-                                               # generation.volume.scale to ≤80% of cap)
+## Deploying it from the depot
 
-# Seed (NO model calls — fully deterministic):
-synth seed   --config config/demo.yaml         # full preset, self-hosted scale
-synth seed   --config config/cloud-demo.yaml   # cloud preset (14d window, scale 0.5)
-synth verify --config config/demo.yaml         # assert every demo anchor via the API
-```
+1. Pick **MRM Lending-Copilot Certification** in the portal catalog and click
+   **Deploy this demo**. Connect a Langfuse demo project — the kit refuses any
+   project whose name doesn't contain `demo`, and the check runs before any job
+   starts, so a customer's production project is never at risk.
+2. The pipeline pauses with the exact billable-units estimate for your OK
+   before anything is written, then runs this kit's own Recipe — materializing
+   the deterministic Spool and replaying it into your project — and finishes
+   with the kit's own `verify`, proving every demo anchor landed. On hosts
+   exposing the evaluator API (Cloud, current self-hosted), seeding also
+   populates the project's **Evaluators** page (three code evaluators + two
+   LLM judges, scoped to the suite); the judges bind to the project's
+   Anthropic LLM connection, configured once in Langfuse project settings.
+3. Present from the **Presenter Runbook** on the deployment page and the seeded
+   Langfuse project.
+4. The Companion is the encore: it is never running by default — start it from
+   the deployment page when you want to hand the room the wheel. It needs an
+   LLM key (provider chosen at deploy time) for live copilot answers. The
+   `/workbench` route carries an **alpha** chip in the portal — preview it
+   yourself before showing it live.
+5. Teardown is project-level: to run the demo fresh, point a new deployment at
+   a fresh Langfuse project and re-seed.
 
-`synth seed` writes **`DEMO_SCRIPT.md`** (the runbook: five checklist rows, each two
-clicks deep) and **`DEMO_MAP.md`** (checklist row → exact UI path → which golden
-trace/object to open) — filled with this run's real ids.
+## The Companion, played live
 
-## What gets created (full preset)
+The live analyst copilot lets the audience ask their own filing questions and
+watch the answer land in Langfuse as a fresh, fully-instrumented trace —
+planner, tool calls, cited synthesis — next to the seeded history, scored by
+the same judges. `/dossier` renders the certification evidence as a validation
+memo a model-risk officer would sign.
+
+The **Validation Workbench** (`/workbench`) is the branded governance layer on
+the same APIs: spec designer, evaluator code
+injection, runs/results/compare, requirement coverage, promote-from-queue,
+sign-off + evidence packs. *(The workbench is a work-in-progress, alpha-stage
+surface — the seeded certification story is the supported path.)*
+
+## What the seeded data contains (full preset)
 
 - **~10–12k traces in ~1,150 sessions** over 30 days — sessions/day driven (~50
   weekdays, ~5 weekend), log-normal turns (median ~7, p95 ~22, tail to 30), Berlin
@@ -88,7 +131,49 @@ trace/object to open) — filled with this run's real ids.
   (deterministic), `groundedness` / `citation_coverage` (judge), `analyst_feedback`
   (user), `reviewer_verdict` (human).
 
-## Commands
+## Delivery model: a cartridge, not a standalone app
+
+Per the delivery-model decision (2026-07-29): **a kit is a cartridge that goes
+into the depot** — the primary delivery method is as-is through the portal,
+which owns deployment, seeding, artifacts, and the Companion's lifecycle. A
+standalone-run story exists (everything below runs from a clone), but the
+decision on how kits run individually *outside* the depot is explicitly
+deferred — this repo references that open question without answering it.
+
+---
+
+## Development and running outside the depot
+
+Everything from here down is for **kit development** — the `synth` CLI, local
+seeding, tests, and release plumbing. None of it is needed to deploy or present
+the demo through the depot. (Running a kit standalone this way works today, but
+it is the kit-dev loop, not a supported delivery method — see the
+[delivery model](#delivery-model-a-cartridge-not-a-standalone-app) note above.)
+
+### Quick start
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+cp .env.example .env                     # LANGFUSE_BASE_URL + keys (Cloud or self-hosted)
+
+# Cloud free tier? Check current event caps (https://langfuse.com/pricing), then:
+synth probe  --config config/cloud-demo.yaml   # ONE backdated trace; fails loudly if
+                                               # the host drops historical timestamps
+synth plan   --config config/cloud-demo.yaml   # prints the exact event count (adjust
+                                               # generation.volume.scale to ≤80% of cap)
+
+# Seed (NO model calls — fully deterministic):
+synth seed   --config config/demo.yaml         # full preset, self-hosted scale
+synth seed   --config config/cloud-demo.yaml   # cloud preset (14d window, scale 0.5)
+synth verify --config config/demo.yaml         # assert every demo anchor via the API
+```
+
+`synth seed` writes **`DEMO_SCRIPT.md`** (the runbook: five checklist rows, each two
+clicks deep) and **`DEMO_MAP.md`** (checklist row → exact UI path → which golden
+trace/object to open) — filled with this run's real ids.
+
+### Commands
 
 ```
 synth plan | seed | import-spool | verify        # the deterministic seed pipeline
@@ -100,13 +185,10 @@ synth memo | script                              # CERT_MEMO.md · DEMO_SCRIPT.m
 synth submit | playground                        # live copilot + /dossier + /workbench
 ```
 
-The **Validation Workbench** (`synth playground` → `/workbench`, see
-[`WORKBENCH.md`](WORKBENCH.md)) is the branded governance layer on the same APIs:
-spec designer, evaluator code injection, runs/results/compare, requirement coverage,
-promote-from-queue, sign-off + evidence packs. *(The `playground`/`workbench` app is a
-work-in-progress, alpha-stage surface — the seed pipeline is the supported path.)*
+`synth playground` serves the same app the depot starts as the Companion — the
+copilot, `/dossier`, and the alpha `/workbench`.
 
-## Architecture notes
+### Architecture notes
 
 Backdated **batch ingestion** (`/api/public/ingestion`, ingestion-version-4 header) —
 the OTel SDK can't backfill; two-phase recoverable seeding (NDJSON spool → chunked
@@ -169,13 +251,13 @@ Known cosmetics (say it before they ask): prompt-version *creation* timestamps c
 be backdated (era linkage on generations carries the story); seeded scores show source
 `API`; queue items show seed-time creation dates.
 
-## Guardrails & teardown
+### Guardrails & teardown
 
 The seeder refuses to run unless the project name contains `target.project_hint`.
 Re-seeding upserts traces/scores; dataset-run-items would duplicate — **teardown is
 project-level** (fresh project + re-seed; deterministic ids regenerate identically).
 
-## Tests
+### Tests
 
 ```bash
 pip install -e '.[dev,playground]' && pytest -q
@@ -187,7 +269,7 @@ pip install -e '.[dev,playground]' && pytest -q
 # network-free — it is exactly what CI runs (.github/workflows/ci.yml).
 ```
 
-## Image releases
+### Image releases
 
 Pushing a `vX.Y.Z` tag triggers `.github/workflows/publish.yml`, which builds this
 kit's image, pushes it to `ghcr.io/borismichel/langfuse-synth-lender`, and cosign-signs

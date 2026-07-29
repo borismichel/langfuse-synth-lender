@@ -45,7 +45,9 @@ _CATALOG_TTL = 60.0
 
 def _catalog(cfg: Config, *, force: bool = False) -> Catalog:
     now = time.monotonic()
-    if not force and _CATALOG_CACHE.get("at", 0) > now - _CATALOG_TTL:
+    # "cat" is checked explicitly: monotonic() can be < TTL on a freshly booted
+    # host, where a timestamp default of 0 would make an empty cache look fresh.
+    if not force and "cat" in _CATALOG_CACHE and _CATALOG_CACHE["at"] > now - _CATALOG_TTL:
         return _CATALOG_CACHE["cat"]
     cat = fetch_catalog(cfg)
     _CATALOG_CACHE.update(at=now, cat=cat)

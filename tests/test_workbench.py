@@ -193,6 +193,31 @@ def test_workbench_pages_render_offline(cfg, monkeypatch):
     assert client.get("/workbench/evidence/wb-test-ddd444?download=1").status_code == 403
 
 
+def test_catalog_cache_treats_empty_as_stale_even_at_low_uptime(cfg, monkeypatch):
+    """#156: an empty cache must fetch, not KeyError('cat'), when monotonic() < TTL —
+    on a freshly booted runner monotonic() is roughly seconds since boot."""
+    from types import SimpleNamespace
+
+    import synth.workbench.views as views_mod
+
+    calls = []
+
+    def fake_fetch(c, with_items=True):
+        calls.append(1)
+        return offline_catalog(c)
+
+    monkeypatch.setattr(views_mod, "fetch_catalog", fake_fetch)
+    monkeypatch.setattr(views_mod, "time", SimpleNamespace(monotonic=lambda: 5.0))
+    views_mod._CATALOG_CACHE.clear()
+    try:
+        cat = views_mod._catalog(cfg)
+        assert calls == [1] and cat.dataset("certification-suite")
+        # the warm cache is still fresh at the same instant — no refetch
+        assert views_mod._catalog(cfg) is cat and calls == [1]
+    finally:
+        views_mod._CATALOG_CACHE.clear()    # don't leave a low-uptime timestamp behind
+
+
 def test_deep_links_are_project_scoped_or_absent():
     from synth.workbench.links import Links
 

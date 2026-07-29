@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from langfuse_synth_core.companion import CompanionAdapter
 
 
-def langfuse(cfg: Config, adapter: "CompanionAdapter | None" = None) -> Any:
+def langfuse(cfg: Config, *, adapter: "CompanionAdapter | None" = None) -> Any:
     """The Langfuse SDK client (prompts, datasets, experiments)."""
     if adapter is not None:
         return adapter.langfuse()
@@ -44,7 +44,7 @@ def langfuse(cfg: Config, adapter: "CompanionAdapter | None" = None) -> Any:
     return get_langfuse(cfg)
 
 
-def llm(model: str | None = None, adapter: "CompanionAdapter | None" = None) -> Any:
+def llm(model: str | None = None, *, adapter: "CompanionAdapter | None" = None) -> Any:
     """The ready LLM client for ``model``.
 
     ``model`` is this kit's per-submission choice — the copilot's model selector, or a
@@ -58,7 +58,7 @@ def llm(model: str | None = None, adapter: "CompanionAdapter | None" = None) -> 
     return get_llm(model)
 
 
-def ingestor(cfg: Config, adapter: "CompanionAdapter | None" = None, **kw: Any) -> Any:
+def ingestor(cfg: Config, *, adapter: "CompanionAdapter | None" = None, **kw: Any) -> Any:
     """The backdated-batch write client used to emit live traces and scores."""
     if adapter is not None:
         return adapter.ingestor(**kw)

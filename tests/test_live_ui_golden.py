@@ -10,9 +10,11 @@ This kit is the deliberate stress case (#25 D8): its Surface is ~4.6× EV's, and
 plain-text responses, and raw REST reads — is exactly the divergent Surface the boundary must
 carry without absorbing scenario knowledge. So the gate covers the whole workbench, not a
 token page: overview, designer, specs (list + detail), runs (list + detail), compare,
-coverage, promote, and the evidence pack, alongside the copilot index and the ``/dossier``.
-Each is captured bare *and* ``LIVE_BASE_PATH``-prefixed, since the portal serves live
-deployments behind ``/live/{id}`` (LAN-357).
+coverage, and the evidence pack, alongside the copilot index and the ``/dossier``. Each is
+captured bare *and* ``LIVE_BASE_PATH``-prefixed, since the portal serves live deployments
+behind ``/live/{id}`` (LAN-357). ``/workbench/promote`` is the one route with no golden —
+it raises before rendering a byte, and has since long before this migration (depot issue
+#155); see ``PROMOTE_ROUTE`` below.
 
 Discipline mirrors the kit's spool golden (``tests/golden/lender_spool.ndjson``): a committed
 byte oracle plus a render-here-and-compare check. Every page renders deterministically with
@@ -54,9 +56,9 @@ ROUTES = {
 
 # ``/workbench/promote`` is deliberately NOT in ROUTES: it raises before it renders a byte,
 # on `main`, on both shipped configs, and did so before this migration — see
-# ``test_promote_route_carries_its_pre_existing_break_across_the_swap``. It has no
-# presenter-visible output to bless. Pinned separately so the swap is still proven not to
-# have caused or changed it.
+# ``test_promote_route_carries_its_pre_existing_break_across_the_swap`` and the follow-up,
+# depot issue #155. It has no presenter-visible output to bless. Pinned separately so the
+# swap is still proven not to have caused or changed it.
 PROMOTE_ROUTE = "/workbench/promote"
 
 
@@ -237,9 +239,9 @@ def test_promote_route_carries_its_pre_existing_break_across_the_swap(monkeypatc
     byte-identical gate found it because nothing had ever rendered the page in a test.
 
     Fixing it is NOT this slice's business — a shell-swap moves plumbing, not scenario code —
-    so it is filed as a follow-up and pinned here instead. This asserts the *pre-existing*
-    failure is unchanged by the swap: same exception, same attribute, still never a silent
-    wrong page. When the follow-up lands, delete this test and add ``wb_promote`` to
+    so it is filed as depot issue #155 and pinned here instead. This asserts the
+    *pre-existing* failure is unchanged by the swap: same exception, same attribute, still
+    never a silent wrong page. When #155 lands, delete this test and add ``wb_promote`` to
     ``ROUTES`` so the page joins the byte-identical gate."""
     pytest.importorskip("fastapi")
     client = _client(monkeypatch, tmp_path, base_path)

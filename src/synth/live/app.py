@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import html
 import json
+from typing import TYPE_CHECKING
 
 from ..config import Config
 from langfuse_synth_core.live.paths import local
 from .prefabs import build_prefabs, prefabs_by_key
 from .submit import submit, thumbs_down
 from langfuse_synth_core.live.theme import page
+
+if TYPE_CHECKING:
+    from langfuse_synth_core.companion import CompanionAdapter
 
 TITLE = "Meridian Commercial Bank — Analyst Copilot"
 
@@ -63,7 +67,7 @@ def _error_card(headline: str, exc: Exception) -> str:
     <a class="back" href="{local('/')}">← try again</a>"""
 
 
-def create_app(cfg: Config, adapter=None):
+def create_app(cfg: Config, adapter: "CompanionAdapter | None" = None):
     """Build the live Surface: the copilot, the ``/dossier``, and the mounted workbench.
 
     ``adapter`` is the Companion Adapter (Spec G · G5, #144). When present, every route that

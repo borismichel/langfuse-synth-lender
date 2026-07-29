@@ -16,9 +16,13 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from ..config import Config
 from .results import WorkbenchRun, aggregates, save_run
+
+if TYPE_CHECKING:
+    from langfuse_synth_core.companion import CompanionAdapter
 
 ROLES = ("builder", "validator", "approver")
 ROLE_COOKIE = "wb_role"
@@ -29,7 +33,7 @@ def can_sign(role: str) -> bool:
 
 
 def sign_off(cfg: Config, run: WorkbenchRun, *, role: str, name: str,
-             note: str, adapter=None) -> tuple[bool, str]:
+             note: str, adapter: "CompanionAdapter | None" = None) -> tuple[bool, str]:
     if not can_sign(role):
         return False, "only an Approver can sign off (switch role on the overview page)"
     if run.state != "done":
@@ -41,7 +45,8 @@ def sign_off(cfg: Config, run: WorkbenchRun, *, role: str, name: str,
     return True, ("" if not err else f"recorded locally; Langfuse evidence write failed: {err}")
 
 
-def _record_in_langfuse(cfg: Config, run: WorkbenchRun, adapter=None) -> str:
+def _record_in_langfuse(cfg: Config, run: WorkbenchRun,
+                        adapter: "CompanionAdapter | None" = None) -> str:
     """Queue item + human-annotation score on a sample run trace (best-effort). The write
     client comes from the Companion Adapter when the live Surface hands one in (Spec G · G5,
     #144); otherwise it is built off the env, unchanged."""
@@ -69,7 +74,7 @@ def _record_in_langfuse(cfg: Config, run: WorkbenchRun, adapter=None) -> str:
             comment=(f"human annotation (certification-review) — sign-off by "
                      f"{run.signoff.get('by')} on {run.spec_ref} "
                      f"(spec {run.spec_hash[:12]}…). {run.signoff.get('note', '')}".strip()))
-        ing = get_ingestor(cfg, adapter)
+        ing = get_ingestor(cfg, adapter=adapter)
         ing.add(ev)
         ing.flush()
         return ""

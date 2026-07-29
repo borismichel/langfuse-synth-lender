@@ -18,12 +18,17 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
+from typing import TYPE_CHECKING
+
 from ..config import Config
 from ..grading import item_passes
 from .links import Links
 from .registry import discover_tasks, evaluator_by_name, fingerprints
 from .results import ItemRow, WorkbenchRun, gate_verdicts, save_run
 from .specs import ExperimentSpec
+
+if TYPE_CHECKING:
+    from langfuse_synth_core.companion import CompanionAdapter
 
 _LOCK = threading.Lock()
 RUNS: dict[str, dict] = {}   # run_id -> {state, progress, total, message}
@@ -33,7 +38,8 @@ def status(run_id: str) -> dict:
     return RUNS.get(run_id, {})
 
 
-def start_run(cfg: Config, spec: ExperimentSpec, *, adapter=None) -> tuple[str | None, str]:
+def start_run(cfg: Config, spec: ExperimentSpec, *,
+              adapter: "CompanionAdapter | None" = None) -> tuple[str | None, str]:
     """Kick off a background run. Returns (run_id, error).
 
     ``adapter`` is the Companion Adapter (Spec G · G5, #144): when the live Surface hands one
@@ -81,7 +87,8 @@ def _wrap_evaluators(names: list[str]):
     return out
 
 
-def _execute(cfg: Config, spec: ExperimentSpec, run_id: str, adapter=None) -> None:
+def _execute(cfg: Config, spec: ExperimentSpec, run_id: str,
+             adapter: "CompanionAdapter | None" = None) -> None:
     started = datetime.now(timezone.utc).isoformat()
     shas = fingerprints(spec.evaluators)
     run = WorkbenchRun(run_id=run_id, spec_ref=spec.ref, spec_hash=spec.spec_hash,
@@ -91,7 +98,7 @@ def _execute(cfg: Config, spec: ExperimentSpec, run_id: str, adapter=None) -> No
         from ..clients import langfuse as get_langfuse
         from ..clients import llm as get_llm
 
-        lf = get_langfuse(cfg, adapter)
+        lf = get_langfuse(cfg, adapter=adapter)
 
         # resolve + pin the prompt version for the metadata record
         rel = spec.release
@@ -102,7 +109,7 @@ def _execute(cfg: Config, spec: ExperimentSpec, run_id: str, adapter=None) -> No
         release = {**rel.model_dump(), "prompt_version": prompt_version}
         run.release = release
 
-        task = _make_task(lf, get_llm(release["model"], adapter), release)
+        task = _make_task(lf, get_llm(release["model"], adapter=adapter), release)
         evaluators = _wrap_evaluators(spec.evaluators)
         links = Links.from_cfg(cfg)
 

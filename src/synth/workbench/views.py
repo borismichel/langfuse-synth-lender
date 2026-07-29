@@ -16,6 +16,7 @@ from __future__ import annotations
 import html
 import json
 import time
+from typing import TYPE_CHECKING
 
 # Module-level so postponed annotations (PEP 563) resolve for FastAPI's signature
 # inspection. fastapi is the `playground` extra; this module is only imported by
@@ -34,6 +35,9 @@ from .requirements import coverage_matrix
 from .results import aggregates, compare, filter_rows, list_runs, load_run
 from .signoff import ROLE_COOKIE, ROLES, can_sign, evidence_markdown, sign_off
 from .specs import ExperimentSpec, Gates, Release, Target, list_specs, load_spec, save_spec
+
+if TYPE_CHECKING:
+    from langfuse_synth_core.companion import CompanionAdapter
 
 _CATALOG_CACHE: dict = {}
 _CATALOG_TTL = 60.0
@@ -99,7 +103,7 @@ def _role_of(request) -> str:
 # ---------------------------------------------------------------------------
 # Router
 # ---------------------------------------------------------------------------
-def build_router(cfg: Config, adapter=None):
+def build_router(cfg: Config, adapter: "CompanionAdapter | None" = None):
     """The workbench router, mounted under ``/workbench`` by ``live/app.create_app``.
 
     ``adapter`` is the Companion Adapter (Spec G · G5, #144), threaded to the three actions

@@ -13,11 +13,15 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import requests
 
 from ..config import Config
 from .catalog import Catalog
+
+if TYPE_CHECKING:
+    from langfuse_synth_core.companion import CompanionAdapter
 
 
 def _auth():
@@ -96,7 +100,7 @@ def _hydrate(cfg: Config, trace_id: str, status: str) -> Candidate:
 
 def promote(cfg: Config, *, trace_id: str, dataset_name: str, slice_name: str,
             expected_output_json: str, requirement_ids: list[str],
-            adapter=None) -> tuple[str, str]:
+            adapter: "CompanionAdapter | None" = None) -> tuple[str, str]:
     """Create the dataset item. Returns (item_id, error). The SDK client comes from the
     Companion Adapter when the live Surface hands one in (Spec G · G5, #144); the trace
     lookup below stays on this module's own REST reader, beside the adapter."""
@@ -112,7 +116,7 @@ def promote(cfg: Config, *, trace_id: str, dataset_name: str, slice_name: str,
 
     from ..clients import langfuse as get_langfuse
 
-    lf = get_langfuse(cfg, adapter)
+    lf = get_langfuse(cfg, adapter=adapter)
     item = lf.create_dataset_item(
         dataset_name=dataset_name,
         input=trace.get("input") or {},

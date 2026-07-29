@@ -64,8 +64,8 @@ def submit(cfg: Config, question: AnalystQuestion, model: str | None = None,
     base_url = cfg.target.base_url
     project_id, project_name = assert_demo_project(base_url, cfg.target.project_hint)
 
-    lf = get_langfuse(cfg, adapter)
-    llm = get_llm(model or cfg.certification.incumbent_model, adapter)
+    lf = get_langfuse(cfg, adapter=adapter)
+    llm = get_llm(model or cfg.certification.incumbent_model, adapter=adapter)
     model = llm.model  # the model actually resolved for the selected provider
     got, in_tok, out_tok, version, latency_ms, messages = _live_answer(cfg, lf, llm, question)
     log(f"· {model} (prompt v{version}) answered: {got.answer_type} — {got.answer[:90]} ({latency_ms}ms)")
@@ -79,7 +79,7 @@ def submit(cfg: Config, question: AnalystQuestion, model: str | None = None,
     events = build_trace_events(Rng(cfg.generation.seed), cfg, spec, version,
                                 answer_usage=(in_tok, out_tok),
                                 answer_latency_ms=latency_ms, answer_input=messages)
-    ing = get_ingestor(cfg, adapter)
+    ing = get_ingestor(cfg, adapter=adapter)
     ing.extend(events)
     ing.flush()
 
@@ -111,7 +111,7 @@ def thumbs_down(cfg: Config, trace_id: str, comment: str,
                      value="down", data_type="CATEGORICAL",
                      timestamp=datetime.now(timezone.utc),
                      trace_id=trace_id, environment="production", comment=note)
-    ing = get_ingestor(cfg, adapter)
+    ing = get_ingestor(cfg, adapter=adapter)
     ing.add(ev)
     ing.flush()
     log(f"· thumbs-down logged on {trace_id[:12]}…: {note[:60]}")

@@ -151,6 +151,18 @@ def test_model_selector_default_is_the_incumbent(cfg, adapter, no_project_probe)
     assert adapter.models_asked == [cfg.certification.incumbent_model]
 
 
+def test_each_candidate_model_resolves_exactly_as_named(cfg, adapter):
+    """The invariant the whole certification story turns on: with no deployment pin, an
+    explicitly named candidate is honoured exactly, so incumbent-vs-candidate stays a real
+    comparison. Provider routing moved to core in this swap; this pins that the kit's
+    multi-candidate lever still survives the trip through the adapter."""
+    cert = cfg.certification
+    for model in (cert.incumbent_model, cert.candidate_a_model, cert.candidate_b_model):
+        assert adapter.llm(model).model == model
+    assert adapter.models_asked == [cert.incumbent_model, cert.candidate_a_model,
+                                    cert.candidate_b_model]
+
+
 def test_flagging_an_answer_writes_through_the_adapter(cfg, adapter, monkeypatch):
     from synth.live.submit import thumbs_down
 

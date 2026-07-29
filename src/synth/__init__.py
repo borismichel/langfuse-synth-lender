@@ -15,4 +15,4 @@ See ``README.md`` for the overview. The package is organised as:
 - ``cli``           — ``synth plan | seed | verify | certify | memo | script | playground``
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

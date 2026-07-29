@@ -13,7 +13,7 @@ import re
 from datetime import datetime, timezone
 
 from synth.config import load_config
-from synth.script import WALKTHROUGH_OUT, render_script
+from synth.script import render_script
 from synth.seed.run import run_seed
 
 RUN_DATE = datetime(2026, 6, 12, 12, 0, 0, tzinfo=timezone.utc)
@@ -25,7 +25,12 @@ PROVENANCE = re.compile(r"[Gg]enerated (by|from|at)")
 FENCED_SYNTH = re.compile(r"^```[^\n]*\n\s*synth ", re.MULTILINE)
 
 
-def _render(tmp_path, monkeypatch):
+def _render_artifacts(tmp_path, monkeypatch):
+    """Seed a dry run and render the three runbook artefacts.
+
+    Returns ``(state, {filename: rendered text})`` — the state so anchor assertions can
+    check the rendered text against the ids the run actually produced.
+    """
     import synth.script as script_mod
 
     cfg = load_config("config/demo.yaml")
@@ -35,7 +40,7 @@ def _render(tmp_path, monkeypatch):
     monkeypatch.setattr(script_mod, "MAP_OUT", tmp_path / "DEMO_MAP.md")
     monkeypatch.setattr(script_mod, "WALKTHROUGH_OUT", tmp_path / "DEMO_WALKTHROUGH.html")
     script = render_script(cfg, state, out_path=tmp_path / "DEMO_SCRIPT.md").read_text()
-    return {
+    return state, {
         "DEMO_SCRIPT.md": script,
         "DEMO_MAP.md": (tmp_path / "DEMO_MAP.md").read_text(),
         "DEMO_WALKTHROUGH.html": (tmp_path / "DEMO_WALKTHROUGH.html").read_text(),
@@ -49,13 +54,17 @@ def _presenter_region(text: str) -> str:
 
 
 def test_presenter_beats_reference_no_synth_command(tmp_path, monkeypatch):
-    for name, text in _render(tmp_path, monkeypatch).items():
+    # Deliberately stricter than #181's fenced-block heuristic: "synth" followed by a
+    # space is always a command in flight ("run synth certify"), never prose — prose
+    # names the CLI as `synth`/<code>synth</code>, which this leaves alone.
+    _, arts = _render_artifacts(tmp_path, monkeypatch)
+    for name, text in arts.items():
         presenter = _presenter_region(text)
         assert "synth " not in presenter, f"{name}: presenter beat references a synth command"
 
 
 def test_synth_commands_live_in_a_marked_developer_mode_section(tmp_path, monkeypatch):
-    arts = _render(tmp_path, monkeypatch)
+    _, arts = _render_artifacts(tmp_path, monkeypatch)
     script = arts["DEMO_SCRIPT.md"]
     assert DEV_MODE_MARKER in script
     dev = script.split(DEV_MODE_MARKER, 1)[1]
@@ -69,7 +78,7 @@ def test_synth_commands_live_in_a_marked_developer_mode_section(tmp_path, monkey
 
 
 def test_workbench_is_an_optional_escalation_via_the_live_asset_link(tmp_path, monkeypatch):
-    arts = _render(tmp_path, monkeypatch)
+    _, arts = _render_artifacts(tmp_path, monkeypatch)
     for name in ("DEMO_SCRIPT.md", "DEMO_WALKTHROUGH.html"):
         presenter = _presenter_region(arts[name])
         assert "/workbench" in presenter, f"{name}: workbench not offered"
@@ -81,27 +90,19 @@ def test_workbench_is_an_optional_escalation_via_the_live_asset_link(tmp_path, m
 
 
 def test_prep_and_teardown_are_depot_native(tmp_path, monkeypatch):
-    presenter = _presenter_region(_render(tmp_path, monkeypatch)["DEMO_SCRIPT.md"])
+    _, arts = _render_artifacts(tmp_path, monkeypatch)
+    presenter = _presenter_region(arts["DEMO_SCRIPT.md"])
     assert ".env" not in presenter          # no shell-era prep
     assert "deploy again" in presenter.lower()
 
 
 def test_anchors_stay_run_state_generated(tmp_path, monkeypatch):
-    import synth.script as script_mod
-
-    cfg = load_config("config/demo.yaml")
-    cfg.generation.volume.scale = 0.05
-    state = run_seed(cfg, dry_run=True, persist=False, run_date=RUN_DATE,
-                     spool_path=tmp_path / "spool.ndjson", log=lambda m: None)
-    monkeypatch.setattr(script_mod, "MAP_OUT", tmp_path / "DEMO_MAP.md")
-    monkeypatch.setattr(script_mod, "WALKTHROUGH_OUT", tmp_path / "DEMO_WALKTHROUGH.html")
-    render_script(cfg, state, out_path=tmp_path / "DEMO_SCRIPT.md")
-    walkthrough = (tmp_path / "DEMO_WALKTHROUGH.html").read_text()
+    state, arts = _render_artifacts(tmp_path, monkeypatch)
+    walkthrough = arts["DEMO_WALKTHROUGH.html"]
     for g in state.golden:
-        assert g["trace_id"] in (tmp_path / "DEMO_MAP.md").read_text()
+        assert g["trace_id"] in arts["DEMO_MAP.md"]
     assert state.golden_by_key("numeric_hallucination")["trace_id"] in walkthrough
     assert state.suite["name"] in walkthrough
     # Provenance retained (descriptive, exempt from the rule).
     assert PROVENANCE.search(walkthrough)
-    assert PROVENANCE.search((tmp_path / "DEMO_SCRIPT.md").read_text())
-    assert WALKTHROUGH_OUT.name == "DEMO_WALKTHROUGH.html"
+    assert PROVENANCE.search(arts["DEMO_SCRIPT.md"])

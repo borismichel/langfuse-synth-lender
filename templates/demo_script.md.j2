@@ -24,8 +24,9 @@ bottom and is never part of a presenter beat.
   `{{ cand_b.name }}` ({{ cand_b.date }}) — **candidate B fails numeric accuracy**
   ({{ '%.1f%%'|format((cand_b.pass_rates or {}).get('numeric_lookup', 0)*100) }} vs ≥{{ '%.0f%%'|format(gates.get('numeric_lookup', 0.95)*100) }})
 - **Queue:** `{{ queue.name }}` — {{ queue.completed }} completed, {{ queue.pending }} pending (alive)
-- **Reminders:** the Evaluators page was pre-populated by the deploy's `evaluators`
-  pipeline step — 3 code evaluators (`numeric_accuracy`, `citation_format`,
+- **Reminders:** the Evaluators page is pre-populated by the deploy's `evaluators`
+  pipeline step — non-fatal, and it needs a host exposing the evaluator API, so glance at
+  the page before you go on — 3 code evaluators (`numeric_accuracy`, `citation_format`,
   `escalation_correctness`, no LLM connection) + 2 LLM judges (`groundedness`,
   `citation_coverage`, against the project's Anthropic connection). The code evaluators
   + judges are scoped to the suite via `target=experiment` rules (sampling 1.0); the
@@ -76,9 +77,10 @@ Open `{{ suite_info.name }}` → **Experiments**: three runs on the same suite, 
 The headline deltas show in the **Experiment-Level Scores** column — per-run rollups
 `mean_groundedness`, `rate_numeric_accuracy`, `verdict` (plus `mean_citation_coverage`,
 `rate_citation_format`, `rate_escalation_correctness`). Read across — candidate B's
-`rate_numeric_accuracy` and `mean_groundedness` are visibly lowest. For per-item detail,
-the per-item **score columns** fill when you trigger the evaluators on a run (rules don't
-backfill the seeded runs).
+`rate_numeric_accuracy` and `mean_groundedness` are visibly lowest. The per-item **score
+columns** stay empty on these runs — evaluator rules never backfill, and the seeded runs
+predate them; the run-level rollups above carry the verdict. Per-item scores fill on a
+run you trigger yourself (see *Optional escalation*).
 
 Drill into one of candidate B's red items: the `numeric_accuracy` comment states exactly
 which figure diverged from the printed table. A real decision, on screen: ship A, reject B.
@@ -108,10 +110,13 @@ disagreements — that's realism, not noise).
   v{{ prompt_versions.production - 1 }} era shows a mild groundedness dip that the v{{ prompt_versions.production }} "fix"
   recovers — monitoring → re-certification, if a stakeholder pulls the thread.
 
-## Optional escalation — the Certification Workbench (alpha)
-Only if the prospect wants the governance layer live. Start the Companion from the
-deployment page and follow its live-asset link to **/workbench** — the branded layer on
-the same APIs (spec designer, evaluator injection, runs, coverage, promote, sign-off).
+## Optional escalation — the Companion (live surfaces)
+Only if the prospect wants more than the record. Start the Companion from the deployment
+page; its live-asset links open three routes — **/** the analyst copilot (the room asks
+its own filing question and watches the trace land next to the seeded history),
+**/dossier** the rendered validation memo, and **/workbench** the branded governance
+layer on the same APIs (spec designer, evaluator injection, runs, coverage, promote,
+sign-off). The workbench is flagged **alpha** — preview it before you show it.
 
 **Live certification, no shell:** /workbench → **designer** → compose the spec (release ×
 suites × evaluators × gates, `{{ candidate_a_model }}` as the release under test) →
@@ -126,8 +131,8 @@ and the evidence pack.
 - No model access at the venue? Nothing in the walk above needs one — all five rows read
   the seeded record, and seeding made zero model calls. Only the live copilot and the
   optional workbench run touch a model; drop both and the story is intact.
-- Every anchor above was asserted by the deploy's `verify` gate before the deployment went
-  green — if the runbook rendered, the data is there.
+- Every anchor above was asserted by the deploy's `verify` gate, which is fatal — the
+  deployment only reached green because each one landed.
 
 ## Reset
 Teardown is project-level and depot-native: **deploy again** against a fresh Langfuse

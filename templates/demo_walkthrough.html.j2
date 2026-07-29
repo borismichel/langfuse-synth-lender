@@ -81,7 +81,8 @@
       <dt>Runs</dt><dd><code>{{ baseline.name }}</code> · <code>{{ cand_a.name }}</code> · <code>{{ cand_b.name }}</code> — <span class="pill fail">candidate B fails numeric accuracy {{ '%.1f%%'|format((cand_b.pass_rates or {}).get('numeric_lookup', 0)*100) }} vs ≥{{ '%.0f%%'|format(gates.get('numeric_lookup', 0.95)*100) }}</span></dd>
       <dt>Queue</dt><dd><code>{{ queue.name }}</code> — {{ queue.completed }} completed, {{ queue.pending }} pending (alive)</dd>
     </dl>
-    <p class="note">The <strong>Evaluators</strong> page was pre-populated by the deploy's <code>evaluators</code> pipeline step:
+    <p class="note">The <strong>Evaluators</strong> page is pre-populated by the deploy's <code>evaluators</code> pipeline step
+    (non-fatal, and it needs a host exposing the evaluator API — glance at the page before you go on):
     3 code evaluators (<code>numeric_accuracy</code>, <code>citation_format</code>, <code>escalation_correctness</code> — no LLM connection)
     + 2 LLM judges (<code>groundedness</code>, <code>citation_coverage</code>, against the project's Anthropic connection).
     Code evaluators + judges are scoped to the suite via <code>target=experiment</code> rules (sampling 1.0); the
@@ -150,8 +151,9 @@
       <code>mean_groundedness</code>, <code>rate_numeric_accuracy</code>, <code>verdict</code> (plus
       <code>mean_citation_coverage</code>, <code>rate_citation_format</code>, <code>rate_escalation_correctness</code>).
       Read across — candidate B's <code>rate_numeric_accuracy</code> and <code>mean_groundedness</code> are visibly
-      lowest. <em>For per-item detail, the per-item score columns fill when you trigger the evaluators on a run (rules
-      don't backfill the seeded runs).</em></p>
+      lowest. <em>The per-item score columns stay empty on these runs — evaluator rules never backfill, and the seeded runs
+      predate them; the run-level rollups above carry the verdict. Per-item scores fill on a run you trigger yourself
+      (see <strong>Optional escalation</strong>).</em></p>
       <p>Drill into one of candidate B's red items: the <code>numeric_accuracy</code> comment states exactly which figure
       diverged from the printed table. A real decision, on screen: ship A, reject B.</p>
       <p class="say">Certification of any change — model, prompt, parameters — is an experiment run, not a six-week project.</p>
@@ -192,12 +194,15 @@
     </ul>
   </div>
 
-  <p class="section-label">Optional escalation · the Certification Workbench (alpha)</p>
+  <p class="section-label">Optional escalation · the Companion (live surfaces)</p>
   <div class="card">
-    <p style="margin:0 0 10px;font-size:14px;color:var(--text-secondary)">Only if the prospect wants the governance layer live.
-    Start the Companion from the deployment page and follow its live-asset link to <strong>/workbench</strong> — the branded layer
-    on the same APIs (spec designer, evaluator injection, runs, coverage, promote, sign-off).</p>
-    <p style="margin:0;font-size:14px;color:var(--text-secondary)"><strong>Live certification, no shell:</strong>
+    <p style="margin:0 0 10px;font-size:13.5px;color:var(--text-secondary)">Only if the prospect wants more than the record.
+    Start the Companion from the deployment page; its live-asset links open three routes — <strong>/</strong> the analyst copilot
+    (the room asks its own filing question and watches the trace land next to the seeded history), <strong>/dossier</strong> the
+    rendered validation memo, and <strong>/workbench</strong> the branded governance layer on the same APIs (spec designer,
+    evaluator injection, runs, coverage, promote, sign-off). The workbench is flagged <strong>alpha</strong> — preview it before
+    you show it.</p>
+    <p style="margin:0;font-size:13.5px;color:var(--text-secondary)"><strong>Live certification, no shell:</strong>
     /workbench → <strong>designer</strong> → compose the spec (release × suites × evaluators × gates,
     <code>{{ candidate_a_model }}</code> as the release under test) → <strong>Save spec →</strong>, then
     <strong>Run this experiment →</strong> on the spec page. The run makes real model calls on the deployment's shared LLM key
@@ -211,7 +216,7 @@
       <p style="margin:0;font-size:13.5px;color:var(--text-secondary)">No model access at the venue? Nothing in the walk above
       needs one — all five rows read the seeded record, and seeding made <strong>zero</strong> model calls. Only the live copilot
       and the optional workbench run touch a model; drop both and the story is intact. Every anchor above was asserted by the
-      deploy's <code>verify</code> gate before the deployment went green.</p>
+      deploy's <code>verify</code> gate, which is fatal — the deployment only reached green because each one landed.</p>
     </div>
     <div class="card">
       <h4>Reset</h4>

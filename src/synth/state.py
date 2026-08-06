@@ -6,39 +6,44 @@
 the runbook, DEMO_MAP and dossier can never drift from the seeded data. The file is
 git-ignored — it is per-run output.
 
-It lives in the spool dir, not the repo root — the per-run anchors rules of the
-Contract (``langfuse-synth-core`` ``CONTRACT.md`` §"Per-run anchors (opt-in)" and
-§"Filesystem conventions" · "The spool"): the spool is the only cross-container
-surface, the artifact dir is container-local and would strand the file, and
-``SYNTH_STATE_DIR`` names the location. This kit-local module predates the shared
-core mechanism (portal #199) and is migration debt listed in that document — as are
-the live-container writers (workbench/certify) that collide with the Contract's
-read-only live mount.
+The IO is the core anchors mechanism (``langfuse_synth_core.anchors``, portal #199): the
+canonical filename, the location resolved from ``SYNTH_STATE_DIR`` at call time (the
+spool volume — the Contract's per-run anchors rules, ``langfuse-synth-core``
+``CONTRACT.md`` §"Per-run anchors (opt-in)"), and ``save``/``load``/``exists`` inherited
+via :class:`AnchorsIO` — including this kit's tolerant ``load`` (unknown keys dropped),
+now the shared behavior. This module keeps only what is Lender's: the payload fields,
+their convenience accessors, and the dev-checkout fallback location. (The live-container
+writers — workbench/certify — still collide with the Contract's read-only live mount;
+that migration debt is tracked in ``CONTRACT.md``, not here.)
 """
 from __future__ import annotations
 
-import json
-import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
+
+from langfuse_synth_core.anchors import AnchorsIO
+from langfuse_synth_core.anchors import state_dir as _state_dir
+from langfuse_synth_core.anchors import state_path as _state_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-STATE_FILENAME = ".synth_state.json"
+FALLBACK_STATE_DIR = REPO_ROOT / ".synth_spool"
 
 
 def state_dir() -> Path:
-    """Where ``.synth_state.json`` lives — resolved at call time so a container ``ENV``
-    or a shell export both work (the portal injects ``SYNTH_STATE_DIR``)."""
-    env = os.environ.get("SYNTH_STATE_DIR")
-    return Path(env) if env else REPO_ROOT / ".synth_spool"
+    """Where ``.synth_state.json`` lives — ``SYNTH_STATE_DIR`` (the portal injects it)
+    resolved at call time by core, else the dev checkout's spool dir."""
+    return _state_dir(FALLBACK_STATE_DIR)
 
 
 def state_path() -> str:
-    return str(state_dir() / STATE_FILENAME)
+    return _state_path(FALLBACK_STATE_DIR)
 
 
 @dataclass
-class RunState:
+class RunState(AnchorsIO):
+    FALLBACK_STATE_DIR: ClassVar[Path] = FALLBACK_STATE_DIR
+
     base_url: str
     project_name: str
     run_date: str
@@ -69,18 +74,3 @@ class RunState:
 
     def golden_by_key(self, key: str) -> dict:
         return next((g for g in self.golden if g.get("key") == key), {})
-
-    def save(self, path: str | None = None) -> None:
-        p = Path(path or state_path())
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(asdict(self), indent=2))
-
-    @classmethod
-    def load(cls, path: str | None = None) -> "RunState":
-        data = json.loads(Path(path or state_path()).read_text())
-        known = {f for f in cls.__dataclass_fields__}  # tolerate older state files
-        return cls(**{k: v for k, v in data.items() if k in known})
-
-    @staticmethod
-    def exists(path: str | None = None) -> bool:
-        return Path(path or state_path()).exists()

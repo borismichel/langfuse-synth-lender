@@ -70,3 +70,12 @@ def _minimal_state() -> RunState:
         run_date="2026-07-17T00:00:00+00:00",
         prompt_name="p",
     )
+
+
+def test_runstate_rides_the_core_anchors_mechanism():
+    """The IO is core's (portal #199) — a kit-local re-fork of save/load/exists is the
+    diverged-twins debt this migration retired; this pins against its return."""
+    from langfuse_synth_core.anchors import AnchorsIO
+
+    assert issubclass(RunState, AnchorsIO)
+    assert RunState.FALLBACK_STATE_DIR == REPO_ROOT / ".synth_spool"

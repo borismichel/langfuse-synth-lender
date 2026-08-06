@@ -34,3 +34,9 @@ jobs:
         run: pip install -e '.[dev,playground]'
       - name: Test (spool-determinism golden + presenter-visible UI goldens + unit suite)
         run: pytest -q
+      # The Contract as executable checks (portal #198). --advisory: this pre-portal
+      # kit still carries known migration debt (health_path `/`, live/ package shape
+      # — CONTRACT.md's migration-debt list), so findings report without blocking
+      # until it has converged on the target shape.
+      - name: Contract conformance (advisory — synth-authoring conformance)
+        run: synth-authoring conformance . --advisory

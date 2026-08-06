@@ -53,8 +53,8 @@ class Generation(BaseModel):
     archetype: str = "filing_copilot"
     window_days: int = 30
     tz_offset_hours: int = 2                 # Europe/Berlin business hours
-    # `target_traces` is the CANONICAL, cross-kit operator volume knob (the portal passes
-    # `--set generation.target_traces=N`). Lender has NO absolute trace-count knob — total
+    # `target_traces` is the CANONICAL, cross-kit operator volume knob (langfuse-synth-core
+    # CONTRACT.md §"The canonical volume knob"). Lender has NO absolute trace-count knob — total
     # traces are session-DERIVED — so the hook resolves this to the internal `volume.scale`
     # multiplier below via Lender's derive-scale derivation. None (the local/default case)
     # means "no operator knob set" → keep the `volume.scale` shipped in the config file.

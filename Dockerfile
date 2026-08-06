@@ -22,12 +22,13 @@ COPY . .
 # the [dev] extra (pytest + authoring golden gate) is deliberately NOT installed here.
 RUN pip install --no-cache-dir -e '.[playground]'
 
-# Artifact collection dir (PLAN.md section 5.1): kits must write DEMO_SCRIPT.md etc. here.
+# Artifact collection dir (langfuse-synth-core CONTRACT.md §"Filesystem conventions"):
+# kits must write DEMO_SCRIPT.md etc. here.
 ENV SYNTH_OUT_DIR=/app/out
 RUN mkdir -p /app/out /app/.synth_spool && chown -R synth:synth /app
 
 USER synth
 
-# No default CMD: the portal supplies `synth <step> --config {config}` (+ --set flags)
-# at container-create time. Smoke test:
-# docker run <image> synth plan -c config/cloud-demo.yaml
+# No default CMD: the portal supplies the command at container-create time
+# (CONTRACT.md §"The container invocation").
+# Smoke test: docker run <image> synth plan -c config/cloud-demo.yaml

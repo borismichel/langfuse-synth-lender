@@ -239,12 +239,13 @@ def playground(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
     """Serve the analyst-copilot UI + /dossier + /workbench (needs the `playground` extra:
     pip install -e '.[playground]').
 
-    Spec G · G5 (#144): the shell is the Companion Adapter. The fixed
-    ``--config/--host/--port`` invocation is the adapter's ``Invocation`` shape (the portal
-    templates only ``{config}``); the adapter binds ``host:port``, mounts its readiness health
-    route, and serves the Surface with graceful shutdown, handing every route — copilot,
-    dossier, and the mounted certification workbench — ready Langfuse/LLM clients. Scenario
-    code (routes, judges, prefabs, score contracts, trace shapes) is untouched."""
+    Spec G · G5 (#144): the shell is the Companion Adapter. What this surface signs up to —
+    the fixed ``--config/--host/--port`` invocation, env, health/readiness — is
+    ``langfuse-synth-core`` ``CONTRACT.md`` §"The live surface"; the adapter binds
+    ``host:port``, mounts its readiness health route, and serves the Surface with graceful
+    shutdown, handing every route — copilot, dossier, and the mounted certification
+    workbench — ready Langfuse/LLM clients. Scenario code (routes, judges, prefabs, score
+    contracts, trace shapes) is untouched."""
     cfg = _load(config)
     try:
         from langfuse_synth_core.companion import CompanionAdapter

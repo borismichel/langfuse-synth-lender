@@ -3,7 +3,9 @@
 The staff-facing rendering of CERT_MEMO.md: the three-run comparison on the one
 certification suite (baseline / candidate A / candidate B-rejected), per-scenario
 gates, the review-queue record, and the recommendation — filled from
-``.synth_state.json``, so the page and the data in Langfuse always agree.
+``.synth_state.json`` via the read-only anchors transport (``langfuse-synth-core``
+``CONTRACT.md`` §"Per-run anchors (opt-in)"), so the page and the data in Langfuse
+always agree.
 """
 from __future__ import annotations
 

@@ -320,3 +320,66 @@ def test_code_evaluators_survive_string_output():
         assert val(expected) == "pass"
         assert val(structured_json) == "pass"
         assert val("plain text") == "fail"
+
+
+# ---------------------------------------------------------------------------
+# The catalog's ONLINE path — the workbench's one live Langfuse read
+# ---------------------------------------------------------------------------
+def test_the_online_catalog_reads_through_the_library(monkeypatch):
+    """Nothing covered this path: `fetch_catalog` swallows every exception and falls back
+    to `offline_catalog`, so a broken read looks exactly like an unreachable instance —
+    which is how a missing helper survived the move onto the shared read client (#211).
+    Faking the transport, not the module's helpers, is what makes this catch that.
+    """
+    from langfuse_synth_core import lfread
+
+    from synth.config import load_config
+    from synth.workbench.catalog import fetch_catalog
+
+    pages = {
+        "/api/public/v2/prompts": [{"name": "analyst-copilot",
+                                    "versions": [{"version": 7, "labels": ["production"]}],
+                                    "labels": ["production"]}],
+        "/api/public/v2/datasets": [{"id": "ds-1", "name": "certification-suite",
+                                     "description": "the suite"}],
+        "/api/public/dataset-items": [{"id": "i1", "metadata": {"slice": "numeric_lookup"}},
+                                      {"id": "i2", "metadata": {"slice": "covenant"}}],
+        "/api/public/score-configs": [{"id": "sc1", "name": "numeric_accuracy",
+                                       "dataType": "CATEGORICAL"}],
+        "/api/public/unstable/evaluators": [{"id": "ev1", "name": "groundedness"}],
+        "/api/public/unstable/evaluation-rules": [{"id": "r1"}],
+    }
+    seen: list[str] = []
+
+    class _Resp:
+        def __init__(self, path, params):
+            self._path, self._params = path, params
+            self.status_code = 200
+
+        def json(self):
+            page = (self._params or {}).get("page", 1)
+            rows = pages[self._path] if page == 1 else []
+            return {"data": rows, "meta": {"totalPages": 1}}
+
+        def raise_for_status(self):
+            pass
+
+    def handler(method, url, *, params=None, attempts=8, **kw):
+        path = url.replace("http://localhost:3000", "")
+        seen.append(path)
+        assert attempts == 1, "a page-rendering read must not sit in a retry loop"
+        assert path in pages, f"unexpected read: {path}"
+        return _Resp(path, params)
+
+    monkeypatch.setattr(lfread, "request_retry", handler)
+
+    cat = fetch_catalog(load_config("config/demo.yaml"))
+
+    assert cat.online and cat.error == "", cat.error
+    assert [p["name"] for p in cat.prompts] == ["analyst-copilot"]
+    suite = cat.dataset("certification-suite")
+    assert suite is not None and suite.n_items == 2
+    assert suite.slices == {"numeric_lookup": 1, "covenant": 1}
+    assert [s["name"] for s in cat.score_configs] == ["numeric_accuracy"]
+    assert cat.judges_api and [j["name"] for j in cat.judges] == ["groundedness"]
+    assert "/api/public/v2/prompts" in seen

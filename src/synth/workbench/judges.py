@@ -14,11 +14,10 @@ import os
 
 import requests
 
-from langfuse_synth_core.lfread import get_json
-
 from ..config import Config
 from langfuse_synth_core.companion.llm import API_KEY_ENV, resolve_model, resolve_provider
 from ..script import _CITATION_JUDGE, _GROUNDEDNESS_JUDGE
+from .reads import probe_json
 
 # The two LLM-as-judge evaluators, named to match the score configs the rest of the
 # kit uses (so judge scores co-filter with everything else on the scores surface).
@@ -158,10 +157,10 @@ def ensure_code_evaluator(cfg: Config, name: str, source: str) -> tuple[dict | N
         current = match.get("sourceCode") or ""
         if not current:  # the list endpoint omits sourceCode — fetch the detail
             try:
-                det = get_json(base, f"/api/public/unstable/evaluators/{match.get('id')}",
-                               attempts=1)
-                current = det.get("sourceCode") or ""
-            except Exception:  # noqa: BLE001 — unreadable detail: treat as changed, POST
+                current = probe_json(
+                    base, f"/api/public/unstable/evaluators/{match.get('id')}"
+                ).get("sourceCode") or ""
+            except requests.RequestException:   # unreadable detail: treat as changed, POST
                 current = ""
         if current.strip() == desired.strip():
             return match, ""  # unchanged — no new version
@@ -223,11 +222,8 @@ def list_judges(base: str) -> tuple[list[dict], bool]:
     workbench degrades to logged UI instructions — and so is any transport failure, which is
     why every exception lands in the same place rather than propagating."""
     try:
-        # One shot: a host without the API answers 404 and one that is unreachable should
-        # fail fast, because the caller degrades either way (portal #211).
-        return get_json(base, "/api/public/unstable/evaluators",
-                        attempts=1).get("data", []), True
-    except Exception:  # noqa: BLE001 — 404, timeout, reset: all mean "no API here"
+        return probe_json(base, "/api/public/unstable/evaluators").get("data", []), True
+    except requests.RequestException:   # 404, timeout, reset: all mean "no API here"
         return [], False
 
 
@@ -238,9 +234,8 @@ def _judge_provider(base: str, provider: str) -> str:
     list and return the provider whose adapter matches ``provider`` (fallback: the
     provider id capitalised, e.g. ``"Anthropic"`` / ``"Openai"``)."""
     try:
-        conns = get_json(base, "/api/public/llm-connections", {"limit": 50},
-                         attempts=1).get("data", [])
-    except Exception:  # noqa: BLE001 — no connections API here; fall back to capitalising
+        conns = probe_json(base, "/api/public/llm-connections", {"limit": 50}).get("data", [])
+    except requests.RequestException:   # no connections API here; fall back to capitalising
         conns = []
     for c in conns:
         if c.get("adapter") == provider and c.get("provider"):

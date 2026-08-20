@@ -14,27 +14,23 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from langfuse_synth_core.lfread import get_json
-from langfuse_synth_core.target import TargetProfile
+import requests
+
+from langfuse_synth_core.read import ReadError
 
 from ..config import Config
 from .catalog import Catalog
+from .reads import probe_json as _get
+from .reads import probe_reader
 
 if TYPE_CHECKING:
     from langfuse_synth_core.companion import CompanionAdapter
 
-
-# Annotation queues were never deprecated, so the read seam does not model them and the
-# library's read primitive is the right one — with `attempts=1`, because this renders inside
-# a live workbench request and every caller degrades on the error. The *trace* reads below
-# go through the seam instead: under v4 there is no trace row to GET (portal #211).
-def _get(base: str, path: str, params: dict | None = None) -> dict:
-    return get_json(base, path, params, attempts=1)
-
-
-def _reader(cfg: Config):
-    """A read-seam reader for this target, asking once — same reason as `_get` above."""
-    return TargetProfile.detect(cfg.target.base_url).reader(attempts=1)
+# The annotation-queue reads go through `reads.probe_json` (the migration left those
+# endpoints alone); the *trace* reads go through the read seam, because under v4 there is no
+# trace row to GET (portal #211). Both ask once — this renders inside a live request and
+# every caller here degrades on the error rather than failing the page.
+_READ_FAILED = (ReadError, requests.RequestException)
 
 
 @dataclass
@@ -60,14 +56,14 @@ def list_candidates(cfg: Config, catalog: Catalog) -> tuple[list[Candidate], str
             return [], f"queue {qname!r} not found"
         items = _get(base, f"/api/public/annotation-queues/{queue['id']}/items",
                      {"limit": 100}).get("data", [])
-    except Exception as exc:  # noqa: BLE001 — an unreachable instance is a message, not a crash
+    except _READ_FAILED as exc:
         return [], f"queue lookup failed: {exc}"
 
     already = {it.get("sourceTraceId")
                for ds in catalog.datasets for it in ds.items
                if it.get("sourceTraceId")}
     out = []
-    reader = _reader(cfg)          # one reader, so the generation is probed once
+    reader = probe_reader(cfg.target.base_url)   # one reader: the generation is probed once
     for qi in items:
         tid = qi.get("objectId")
         if not tid or tid in already or qi.get("objectType") != "TRACE":
@@ -79,7 +75,7 @@ def list_candidates(cfg: Config, catalog: Catalog) -> tuple[list[Candidate], str
 def _hydrate(cfg: Config, trace_id: str, status: str, reader=None) -> Candidate:
     cand = Candidate(trace_id=trace_id, status=status)
     try:
-        trace = (reader or _reader(cfg)).trace(trace_id)
+        trace = (reader or probe_reader(cfg.target.base_url)).trace(trace_id)
         if trace is None:
             return cand
         cand.question = trace.input or {}
@@ -98,8 +94,8 @@ def _hydrate(cfg: Config, trace_id: str, status: str, reader=None) -> Candidate:
             cand.suggested_expected = answer_deterministic(cand.question).model_dump()
         except Exception:  # noqa: BLE001 — free-form trace: reviewer types it
             cand.suggested_expected = {}
-    except Exception:  # noqa: BLE001 — an unreadable trace prefills nothing; the reviewer types it
-        pass
+    except _READ_FAILED:
+        pass          # an unreadable trace prefills nothing; the reviewer types it
     return cand
 
 
@@ -115,8 +111,8 @@ def promote(cfg: Config, *, trace_id: str, dataset_name: str, slice_name: str,
     except json.JSONDecodeError as exc:
         return "", f"expected output is not valid JSON: {exc}"
     try:
-        trace = _reader(cfg).trace(trace_id, with_scores=False)
-    except Exception as exc:  # noqa: BLE001 — an unreachable instance is a message, not a crash
+        trace = probe_reader(cfg.target.base_url).trace(trace_id, with_scores=False)
+    except _READ_FAILED as exc:
         return "", f"trace lookup failed: {exc}"
     if trace is None:
         return "", f"trace {trace_id} not found"

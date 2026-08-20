@@ -79,11 +79,16 @@ def _costed(observation) -> bool:
 
 
 def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
-    profile = TargetProfile.detect(cfg.target.base_url).resolved()
+    # `try_resolve`, not `resolved`: bad keys or a wrong host must come back as failed
+    # checks with the reason on each line, which is what this report is for — not as a
+    # traceback in place of it. Unresolved, each read below probes again inside its own
+    # check and fails there (portal #211).
+    profile, unreadable = TargetProfile.detect(cfg.target.base_url).try_resolve()
     base = profile.base_url
     reader = profile.reader()
     throttle = profile.post_throttle_s
-    log(f"· verifying against {profile.label} ({base})")
+    log(f"· verifying against {profile.label} ({base})"
+        + (f" — cannot read it: {unreadable}" if unreadable else ""))
     report = VerifyReport()
     suite = state.suite
 
@@ -189,7 +194,10 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
             if not {"mean_groundedness", "rate_numeric_accuracy", "verdict"} <= names:
                 present_ok = False
             for s in scores:
-                if s.name == "rate_numeric_accuracy":
+                # A rollup that came back without a number is a rollup that is not there:
+                # keeping it would put `None` into the comparison below and crash the whole
+                # check, where the honest answer is "this run has no rate_numeric_accuracy".
+                if s.name == "rate_numeric_accuracy" and s.numeric_value is not None:
                     by_rate[experiment.name] = s.numeric_value
         worst = min(by_rate.items(), key=lambda kv: kv[1]) if by_rate else ("", None)
         delta_ok = "haiku" in worst[0]

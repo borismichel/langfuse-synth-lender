@@ -88,13 +88,21 @@ def _turn(cfg):
     return case.question, answer_deterministic(case.question)
 
 
-def _emit(emitter, cfg):
-    question, answer = _turn(cfg)
-    trace_id = emit_live_turn(
-        emitter, cfg, question=question, answer=answer,
+def _emit(emitter, cfg, *, answer=None, calls=None):
+    question, deterministic = _turn(cfg)
+    answer = answer if answer is not None else deterministic
+
+    def run_answer():
+        if calls is not None:
+            calls.append(len(emitter.client.spans) if hasattr(emitter, "client") else None)
+        return answer, 2400, 320
+
+    trace_id, got = emit_live_turn(
+        emitter, cfg, question=question,
         answer_input=[{"role": "system", "content": "You are an analyst copilot."}],
-        answer_usage=(2400, 320), answer_model=cfg.certification.incumbent_model,
+        run_answer=run_answer, answer_model=cfg.certification.incumbent_model,
         prompt=None, prompt_version=7, tags=["playground"])
+    assert got is answer
     return question, answer, trace_id
 
 
@@ -149,6 +157,18 @@ def test_the_tools_nest_under_the_planning_pass(emitter, client):
         assert by_name[name].parent is planner, name
 
 
+def test_the_model_runs_inside_the_answer_generation(emitter, client):
+    """The seam stamps wall clock and takes no start time, so a call made before the span
+    opens lands as a zero-millisecond generation — beside a seeded pool with realistic
+    latencies, and it is the latency column a presenter opens this trace to see. The
+    emitter calls the model thunk while the span is open; this pins that."""
+    open_spans = []
+    _emit(emitter, load_config("config/demo.yaml"), calls=open_spans)
+
+    # The `answer` generation was already opened when the model ran (it is the newest span).
+    assert open_spans and client.spans[open_spans[0] - 1].kw.get("name") == "answer"
+
+
 def test_the_answer_generation_carries_the_real_usage_and_the_selected_model(emitter, client):
     cfg = load_config("config/demo.yaml")
     _, answer, _ = _emit(emitter, cfg)
@@ -174,11 +194,8 @@ def test_the_overall_io_lands_on_the_root_observation(emitter, client):
 
 def test_an_escalating_answer_still_emits_the_escalation_event(emitter, client):
     cfg = load_config("config/demo.yaml")
-    question, answer = _turn(cfg)
-    escalated = answer.model_copy(update={"answer_type": "escalated"})
-    emit_live_turn(emitter, cfg, question=question, answer=escalated,
-                   answer_input=[{"role": "system", "content": "x"}],
-                   answer_usage=(10, 10), answer_model=cfg.certification.incumbent_model)
+    _, answer = _turn(cfg)
+    _emit(emitter, cfg, answer=answer.model_copy(update={"answer_type": "escalated"}))
 
     event = next(s for s in client.spans if s.kw.get("name") == "escalated_to_human")
     assert str(event.kw.get("as_type")).upper() == "EVENT"

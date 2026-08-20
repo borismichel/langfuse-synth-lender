@@ -10,27 +10,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from langfuse_synth_core.lfread import get_json
-
 from ..config import Config
 from ..state import RunState
+from .reads import probe_json as _get
 
 # Every endpoint below — prompts, datasets, dataset items, score configs, the unstable
 # evaluator surface — survived the v4 migration untouched, so the read seam does not model
 # them and `lfread.get_json` is the right primitive: it carries the shared auth and the
 # Retry-After-aware backoff, which this module used to re-implement with a bare
-# `requests.get` and no retry at all (portal #211).
-#
-# One attempt, not eight: the whole module is built to degrade to `offline_catalog` when the
-# instance is unreachable, and it renders inside a live workbench request. Backing off for
-# minutes before falling back would make the resilience worse, not better.
-
-
-def _get(base: str, path: str, params: dict | None = None) -> dict:
-    return get_json(base, path, params, attempts=1)
+# `requests.get` and no retry at all (portal #211). It reads through `reads.probe_json`,
+# which asks once, because the whole module is built to degrade to `offline_catalog`.
 
 
 def _paged(base: str, path: str, params: dict | None = None, max_pages: int = 10) -> list[dict]:
+    """Every row of a numbered-page endpoint. All of these survived the v4 migration and
+    still answer `meta.totalPages`; the cursor-paginated v4 APIs are the read seam's."""
     rows: list[dict] = []
     page = 1
     while page <= max_pages:

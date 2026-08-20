@@ -343,8 +343,8 @@ def test_promote_writes_the_dataset_item_through_the_adapter(cfg, adapter, monke
     from langfuse_synth_core.read import Trace
 
     monkeypatch.setattr(
-        promote_mod, "_reader",
-        lambda cfg: type("_R", (), {
+        promote_mod, "probe_reader",
+        lambda base_url: type("_R", (), {
             "trace": lambda self, tid, **kw: Trace(id=tid, input={"question": "op profit?"}),
         })())
 

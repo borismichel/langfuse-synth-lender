@@ -32,24 +32,37 @@ if TYPE_CHECKING:
     from langfuse_synth_core.companion import CompanionAdapter
 
 
-def _live_answer(cfg: Config, lf, llm, q: AnalystQuestion) -> tuple:
-    """Compile the pinned prompt, call the resolved model, parse. Returns
-    ``(answer, in_tokens, out_tokens, prompt, latency_ms, messages)`` — the managed prompt
-    object rather than its number, because the SDK links a generation to a version by the
-    object."""
+def _compile_turn(cfg: Config, lf, q: AnalystQuestion) -> tuple:
+    """Pull the pinned ``production`` prompt (cache_ttl=0 → a promotion is caught) and
+    compile it. Returns ``(prompt, messages)`` — the managed prompt object rather than its
+    number, because the SDK links a generation to a version by the object.
+
+    Compiling is split from calling because the call has to happen **inside** the `answer`
+    generation for that span to carry a real duration, while the compiled turn is the
+    span's `input` and so must exist before it opens (portal #211)."""
     name = cfg.certification.prompt_name
     prompt = lf.get_prompt(name, label="production", type="chat", cache_ttl_seconds=0)
-    question_json = q.model_dump_json()
-    messages = prompt.compile(question=question_json)
-    system = "\n\n".join(m["content"] for m in messages if m.get("role") == "system")
-    turns = [m for m in messages if m.get("role") != "system"] or \
-        [{"role": "user", "content": question_json}]
-    t0 = time.monotonic()
-    result = llm.complete(system=system, messages=turns, temperature=0, max_tokens=700)
-    latency_ms = int((time.monotonic() - t0) * 1000)
-    chat = [{"role": m.get("role"), "content": m.get("content")} for m in messages]
-    return (parse_answer(result.text), result.input_tokens, result.output_tokens,
-            prompt, latency_ms, chat)
+    messages = prompt.compile(question=q.model_dump_json())
+    return prompt, [{"role": m.get("role"), "content": m.get("content")} for m in messages]
+
+
+def _answer_caller(llm, q: AnalystQuestion, messages: list[dict],
+                   timing: dict) -> Callable[[], tuple]:
+    """The model call, as a thunk the emitter runs inside the `answer` generation.
+
+    Returns ``(answer, input_tokens, output_tokens)``; the measured latency goes into
+    ``timing`` for the log line, since the span's own duration is now the real one."""
+
+    def call() -> tuple:
+        system = "\n\n".join(m["content"] for m in messages if m.get("role") == "system")
+        turns = [m for m in messages if m.get("role") != "system"] or \
+            [{"role": "user", "content": q.model_dump_json()}]
+        t0 = time.monotonic()
+        result = llm.complete(system=system, messages=turns, temperature=0, max_tokens=700)
+        timing["latency_ms"] = int((time.monotonic() - t0) * 1000)
+        return parse_answer(result.text), result.input_tokens, result.output_tokens
+
+    return call
 
 
 def submit(cfg: Config, question: AnalystQuestion, model: str | None = None,
@@ -72,17 +85,21 @@ def submit(cfg: Config, question: AnalystQuestion, model: str | None = None,
     lf = get_langfuse(cfg, adapter=adapter)
     llm = get_llm(model or cfg.certification.incumbent_model, adapter=adapter)
     model = llm.model  # the model actually resolved for the selected provider
-    got, in_tok, out_tok, prompt, latency_ms, messages = _live_answer(cfg, lf, llm, question)
+    prompt, messages = _compile_turn(cfg, lf, question)
     version = getattr(prompt, "version", None)
-    log(f"· {model} (prompt v{version}) answered: {got.answer_type} — {got.answer[:90]} ({latency_ms}ms)")
+    timing: dict = {}
 
-    # The seam stamps wall clock and flushes when the block ends, so the deep link below
-    # points at a trace already on its way.
+    # The model runs INSIDE the `answer` generation (the emitter calls the thunk there), so
+    # that span carries the call's real duration — the seam stamps wall clock and takes no
+    # start time, so a call made out here would land as a zero-millisecond generation. The
+    # block flushes when it ends, so the deep link below points at a trace already on its way.
     emitter = get_emitter(cfg, adapter=adapter, environment="production")
-    trace_id = emit_live_turn(emitter, cfg, question=question, answer=got,
-                              answer_input=messages, answer_usage=(in_tok, out_tok),
-                              answer_model=model, prompt=prompt, prompt_version=version,
-                              tags=["playground"])
+    trace_id, got = emit_live_turn(
+        emitter, cfg, question=question, answer_input=messages,
+        run_answer=_answer_caller(llm, question, messages, timing),
+        answer_model=model, prompt=prompt, prompt_version=version, tags=["playground"])
+    log(f"· {model} (prompt v{version}) answered: {got.answer_type} — "
+        f"{got.answer[:90]} ({timing.get('latency_ms')}ms)")
 
     expected = answer_deterministic(question)
     return {

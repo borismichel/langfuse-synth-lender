@@ -24,7 +24,7 @@ makes this the short version of the same tree rather than a second copy of it.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from langfuse_synth_core.distributions import text_tokens
 from langfuse_synth_core.pricing import cost_details, usage_details
@@ -38,20 +38,25 @@ TRACE_NAME = "copilot-turn"
 
 
 def emit_live_turn(emitter: Any, cfg: Config, *, question: AnalystQuestion,
-                   answer: CopilotAnswer, answer_input: list[dict],
-                   answer_usage: tuple[int, int], answer_model: str,
-                   prompt: Any = None, prompt_version: int | None = None,
+                   answer_input: list[dict], run_answer: Callable[[], tuple],
+                   answer_model: str, prompt: Any = None,
+                   prompt_version: int | None = None,
                    filing: str = "annual-report", desk: str = "mid-market",
                    language: str = "en", user_id: str = "analyst_playground",
                    environment: str = "production",
-                   tags: list[str] | None = None) -> str:
-    """Emit the turn's tree and return its trace id (for the deep link).
+                   tags: list[str] | None = None) -> tuple[str, CopilotAnswer]:
+    """Emit the turn's tree and return ``(trace_id, answer)``.
 
-    ``answer_usage`` is the model's real ``(input, output)`` token count, ``answer_input``
-    the chat turn it saw, and ``prompt`` the managed prompt object — the SDK links a
-    generation to its version by that object, which is what makes "which release answered
-    this?" clickable in the UI. Latencies are not passed: the seam stamps wall clock, which
-    for a live turn is the true number.
+    ``run_answer`` is **called inside the `answer` generation**, and returns
+    ``(answer, input_tokens, output_tokens)``. That is not a style choice: the seam stamps
+    wall clock and offers no start-time parameter, so a model call made before the span is
+    opened lands as a generation of roughly zero milliseconds — beside a seeded pool whose
+    latencies are realistic, which is precisely the column a presenter opens this trace to
+    look at. The call has to happen while the span is open, so the caller hands it in.
+
+    ``answer_input`` is the chat turn the model sees and ``prompt`` the managed prompt
+    object — the SDK links a generation to its version by that object, which is what makes
+    "which release answered this?" clickable in the UI.
     """
     r = Rng(cfg.generation.seed).sub("live", question.case_id)
     pricing = cfg.model_named(answer_model)
@@ -94,14 +99,14 @@ def emit_live_turn(emitter: Any, cfg: Config, *, question: AnalystQuestion,
                                                "toolCallId": fetch_call_id}) as fetch:
                 fetch.update(output=fetch_out)
 
-            in_tok, out_tok = answer_usage
-            with planner.generation("answer", model=answer_model,
-                                    usage=usage_details(in_tok, out_tok, 0, 0),
-                                    cost=cost_details(pricing, in_tok, out_tok, 0, 0),
-                                    input=answer_input, model_parameters={"temperature": 0},
+            with planner.generation("answer", model=answer_model, input=answer_input,
+                                    model_parameters={"temperature": 0},
                                     metadata={"tool_calls": tool_calls},
                                     prompt=prompt) as gen:
-                gen.update(output=answer.model_dump())
+                answer, in_tok, out_tok = run_answer()
+                gen.update(output=answer.model_dump(),
+                           usage_details=usage_details(in_tok, out_tok, 0, 0),
+                           cost_details=cost_details(pricing, in_tok, out_tok, 0, 0))
 
             if answer.answer_type == "escalated":
                 with planner.event("escalated_to_human", input={"case_id": question.case_id},
@@ -112,4 +117,4 @@ def emit_live_turn(emitter: Any, cfg: Config, *, question: AnalystQuestion,
             planner.update(output=plan_output)
         trace.update(output=answer.model_dump())
         trace_id = trace.id
-    return trace_id
+    return trace_id, answer

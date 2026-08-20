@@ -13,6 +13,8 @@ double satisfying the same shape is exactly what the real shell is substitutable
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
 
 from synth.config import load_config
@@ -60,18 +62,62 @@ class _FakeLangfuse:
         self.flushed += 1
 
 
-class _FakeIngestor:
+class _FakeEmitter:
+    """Live-emission-seam-shaped: what a Surface opens and what it scores.
+
+    The Surfaces emit through ``adapter.emitter()`` since the read/live-seam cutover
+    (portal #211), so this is the double the wiring tests record against — the Spool's
+    ingestor is not a client a live Surface asks for any more.
+    """
+
     def __init__(self):
-        self.events, self.flushed = [], 0
+        self.observations, self.scores, self.flushed = [], [], 0
 
-    def add(self, ev):
-        self.events.append(ev)
+    @contextmanager
+    def trace(self, name, **kw):
+        node = _FakeObservation(self, name, kw)
+        yield node
+        self.flushed += 1        # the real seam flushes when the trace block ends
 
-    def extend(self, evs):
-        self.events.extend(evs)
+    def score(self, name, value, **kw):
+        self.scores.append({"name": name, "value": value, **kw})
 
     def flush(self):
         self.flushed += 1
+
+
+class _FakeObservation:
+    def __init__(self, emitter, name, kw):
+        self.emitter = emitter
+        self.name = name
+        self.kw = dict(kw)
+        self.id = f"obs-{len(emitter.observations)}"
+        emitter.observations.append(self)
+
+    @property
+    def trace_id(self):
+        return "a" * 32
+
+    def update(self, **kw):
+        self.kw.update(kw)
+        return self
+
+    @contextmanager
+    def observation(self, name, *, as_type="span", **kw):
+        yield _FakeObservation(self.emitter, name, {"as_type": as_type, **kw})
+
+    def span(self, name, **kw):
+        return self.observation(name, as_type="span", **kw)
+
+    def event(self, name, **kw):
+        return self.observation(name, as_type="event", **kw)
+
+    def generation(self, name, *, model=None, usage=None, cost=None, prompt=None, **kw):
+        return self.observation(name, as_type="generation", model=model, usage_details=usage,
+                                cost_details=cost, prompt=prompt, **kw)
+
+    def score(self, name, value, **kw):
+        self.emitter.score(name, value, **kw)
 
 
 class _FakeAdapter:
@@ -80,7 +126,7 @@ class _FakeAdapter:
 
     def __init__(self):
         self.lf = _FakeLangfuse()
-        self.ing = _FakeIngestor()
+        self.emit = _FakeEmitter()
         self.models_asked: list[str | None] = []
 
     def langfuse(self):
@@ -90,8 +136,8 @@ class _FakeAdapter:
         self.models_asked.append(model)
         return _FakeLLM(model or "adapter-default-model")
 
-    def ingestor(self, **kw):
-        return self.ing
+    def emitter(self, **kw):
+        return self.emit
 
 
 @pytest.fixture()
@@ -147,8 +193,8 @@ def test_live_submission_takes_every_client_from_the_adapter(cfg, adapter, no_pr
     # the model the analyst SELECTED is what the adapter was asked to resolve
     assert adapter.models_asked == ["claude-sonnet-4-6"]
     assert res["model"] == "claude-sonnet-4-6"
-    # the trace went out through the adapter's write client, and was flushed
-    assert adapter.ing.events and adapter.ing.flushed == 1
+    # the trace went out through the adapter's emission client, and was flushed
+    assert adapter.emit.observations and adapter.emit.flushed == 1
     assert res["trace_id"] and res["prompt_version"] == 7
 
 
@@ -182,8 +228,9 @@ def test_flagging_an_answer_writes_through_the_adapter(cfg, adapter, monkeypatch
                         lambda base_url, hint: ("proj-fake", "demo"))
     res = thumbs_down(cfg, "a" * 32, "the filing prints (2,431)", adapter=adapter,
                       log=lambda m: None)
-    assert adapter.ing.flushed == 1
-    assert len(adapter.ing.events) == 1
+    assert adapter.emit.flushed == 1
+    assert len(adapter.emit.scores) == 1
+    assert adapter.emit.scores[0]["name"] == "analyst_feedback"
     assert res["comment"] == "the filing prints (2,431)"
 
 
@@ -203,8 +250,8 @@ def test_headless_submit_path_still_builds_its_own_clients(cfg, monkeypatch, no_
     monkeypatch.setattr("langfuse_synth_core.companion.llm.get_llm", fake_get_llm)
     monkeypatch.setattr("langfuse_synth_core.lfclient.get_langfuse",
                         lambda c: _FakeLangfuse())
-    monkeypatch.setattr("langfuse_synth_core.seed.ingest.Ingestor.from_env",
-                        classmethod(lambda cls, base, **kw: _FakeIngestor()))
+    monkeypatch.setattr("langfuse_synth_core.live.emit.LiveEmitter.from_env",
+                        classmethod(lambda cls, base=None, **kw: _FakeEmitter()))
 
     question = build_prefabs(cfg.generation.seed)[0].question
     submit(cfg, question, "claude-sonnet-4-6", log=lambda m: None)
@@ -279,7 +326,7 @@ def test_promote_writes_the_dataset_item_through_the_adapter(cfg, adapter, monke
     unreachable behind the route's pre-existing crash (depot issue #155). With that fixed,
     this proves the newly-live path end to end: POST /workbench/promote resolves its client
     via ``adapter.langfuse()``, the dataset item carries the trace provenance, and the write
-    is flushed — the trace *lookup* stays on the module's own REST reader by design."""
+    is flushed — while the trace *lookup* goes through the read seam."""
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
 
@@ -291,8 +338,15 @@ def test_promote_writes_the_dataset_item_through_the_adapter(cfg, adapter, monke
     cfg.workbench.results_dir = str(tmp_path / ".workbench")
     monkeypatch.setattr(views_mod, "fetch_catalog", lambda c, with_items=True: offline_catalog(c))
     views_mod._CATALOG_CACHE.clear()
-    monkeypatch.setattr(promote_mod, "_get",
-                        lambda base, path, params=None: {"input": {"question": "op profit?"}})
+    # The trace lookup goes through the read seam now (portal #211), so the double is a
+    # reader rather than a raw GET.
+    from langfuse_synth_core.read import Trace
+
+    monkeypatch.setattr(
+        promote_mod, "probe_reader",
+        lambda base_url: type("_R", (), {
+            "trace": lambda self, tid, **kw: Trace(id=tid, input={"question": "op profit?"}),
+        })())
 
     client = TestClient(create_app(cfg, adapter))
     resp = client.post("/workbench/promote", data={

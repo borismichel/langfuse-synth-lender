@@ -1,13 +1,15 @@
-"""`synth verify` — query the data back via the public API and assert the demo's
-anchors (spec v2 acceptance criteria).
+"""`synth verify` — read the data back through the seam and assert the demo's anchors
+(spec v2 acceptance criteria).
 
 Asserts:
 - the certification-suite exists with the configured item count; curated items carry
   ``sourceTraceId`` links,
-- all three seeded runs exist as dataset runs; ``numeric_accuracy = fail`` scores with
-  reasons exist (candidate B's red cells are real),
+- all three seeded runs exist as **experiments** (dataset runs) and carry their full item
+  count; ``numeric_accuracy = fail`` scores with reasons exist (candidate B's red cells are
+  real),
 - each run item carries a prompt-linked ``answer`` generation (references the production
   prompt) with a real token/cost column,
+- run-level aggregate scores exist and candidate B has the lowest ``rate_numeric_accuracy``,
 - the golden traces exist and are tagged ``golden``,
 - the pending flagged trace exists, carries the analyst's down-vote + comment, and is
   NOT in the suite,
@@ -15,16 +17,28 @@ Asserts:
   with the chat-shaped input (also catches the re-seed merge trap),
 - the review queue exists with completed AND pending items (alive, not finished),
 - all five score-method names are present on the scores surface.
+
+**Every Langfuse read here goes through the read seam** (``langfuse_synth_core.read``),
+which owns the endpoints and answers the same normalised rows whichever API generation the
+target serves (portal #211). That matters most for the dataset runs: under v4 a run is an
+**experiment**, listed by dataset id through ``/api/public/experiments`` and its items
+through ``/api/public/experiment-items``, and this file no longer knows that — it asks
+``reader.experiments(...)`` and gets the same rows on either generation.
+
+The two endpoints the seam does not model, because they were never deprecated — dataset
+items and annotation queues — are read with ``lfread.get_json``, which still carries the
+shared auth and the Retry-After-aware backoff.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 
-from langfuse_synth_core.http import request_retry
-from langfuse_synth_core.lfread import auth_from_env, get_all_scores, get_json
+from langfuse_synth_core.lfread import get_json
 
 from .config import Config
 from .state import RunState
+from .target import TargetProfile
 
 
 @dataclass
@@ -46,32 +60,35 @@ class VerifyReport:
         return all(c.ok for c in self.checks)
 
 
-# --- the verify read-client — now the shared lib's (Ring 2 verify split, #34) -----------
-# docs/SEAM.md: the read-helpers (auth + paginated GET of scores/traces across the Langfuse
-# public REST API) are the read direction of "the machine that speaks the Langfuse data
-# model", so they moved into langfuse_synth_core.lfread and ride the shared Retry-After-aware
-# request_retry. They are rebound to their original local names so the run_verify assertion
-# body below is byte-unchanged. `get_all_scores` additionally probes the scores endpoint once
-# (v2 with a legacy-server fallback) — a benign superset of Lender's old hard-coded /v2/scores.
-# The `run_verify` body (which assertions to make about what landed) stays here in the kit —
-# that is the scenario talking.
-_auth = auth_from_env
-_get = get_json
-_get_scores = get_all_scores
+def _system_prompt_of(observation) -> str:
+    """The system turn of a chat-shaped generation input, or ``""`` when it is not one.
+
+    The seam decodes v4's raw-JSON-string `input` back into the messages the deprecated API
+    returned parsed, so this reads the same on either generation."""
+    inp = observation.input
+    if isinstance(inp, list) and inp and isinstance(inp[0], dict) and inp[0].get("role") == "system":
+        return str(inp[0].get("content", ""))
+    return ""
 
 
-def _get_resp(base: str, path: str, params: dict | None = None):
-    """Raw response for tolerate-404 existence checks (a trace/run may legitimately be
-    absent, and a 404 is a signal here, not an error). The lib read-client (`get_json`)
-    raises on non-2xx, so this one assertion-side helper stays in the kit — but it rides the
-    shared Retry-After-aware `request_retry`, so it backs off on Cloud 429s / transient 5xx
-    exactly as the moved read-client does."""
-    return request_retry("GET", f"{base.rstrip('/')}{path}", auth=auth_from_env(),
-                         params=params or {}, timeout=45)
+def _costed(observation) -> bool:
+    """Whether a generation carries a real spend column. The seam rolls legacy's
+    ``calculatedTotalCost`` and v4's ``totalCost`` onto one field, and the ingested
+    breakdown stays available for a target that reports only that."""
+    return bool(observation.total_cost or (observation.cost_details or {}).get("total"))
 
 
 def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
-    base = cfg.target.base_url
+    # `try_resolve`, not `resolved`: bad keys or a wrong host must come back as failed
+    # checks with the reason on each line, which is what this report is for — not as a
+    # traceback in place of it. Unresolved, each read below probes again inside its own
+    # check and fails there (portal #211).
+    profile, unreadable = TargetProfile.detect(cfg.target.base_url).try_resolve()
+    base = profile.base_url
+    reader = profile.reader()
+    throttle = profile.post_throttle_s
+    log(f"· verifying against {profile.label} ({base})"
+        + (f" — cannot read it: {unreadable}" if unreadable else ""))
     report = VerifyReport()
     suite = state.suite
 
@@ -81,8 +98,9 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
         items: list[dict] = []
         page = 1
         while page <= 5:
-            data = _get(base, "/api/public/dataset-items",
-                        {"datasetName": suite["name"], "limit": 100, "page": page})
+            data = get_json(base, "/api/public/dataset-items",
+                            {"datasetName": suite["name"], "limit": 100, "page": page},
+                            throttle=throttle)
             rows = data.get("data", [])
             items.extend(rows)
             if not rows or page >= data.get("meta", {}).get("totalPages", page):
@@ -102,34 +120,31 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
     # legacy REST dataset-run-items path. We can't query the UI view, but an empty
     # run (0 items) is the API-visible symptom of a run that won't render — so we
     # assert every run carries items and a scored sample trace.
+    experiments = []
     try:
         # The SDK run_experiment appends a " - <timestamp>" suffix to each run name, so
-        # match expected run names by PREFIX. (The runs-list endpoint is also eventually
-        # consistent on Cloud — retry until the 3 runs appear.)
-        import time
-
+        # match expected run names by PREFIX. (The runs list is also eventually consistent
+        # on Cloud — retry until the 3 runs appear.)
         expected = sorted((suite.get("runs") or {}).keys())
-        actual_names: list[str] = []
         for attempt in range(8):
-            ds = _get(base, f"/api/public/datasets/{suite['name']}/runs", {"limit": 50})
-            actual_names = [r.get("name", "") for r in ds.get("data", [])]
+            experiments = reader.experiments(dataset_name=suite["name"])
+            actual_names = [e.name for e in experiments]
             if all(any(a.startswith(name) for a in actual_names) for name in expected):
                 break
             time.sleep(8)
         missing, matched = [], []
         for name in expected:
-            hit = next((a for a in actual_names if a.startswith(name)), None)
+            hit = next((e for e in experiments if e.name.startswith(name)), None)
             (matched.append(hit) if hit else missing.append(name))
         # Each run must carry the FULL item count (== suite size). An empty run won't
         # surface in the Experiments tab; a short run (e.g. 71/72) means a run item was
         # dropped — exactly the symptom of a transient ingest blip during run_experiment.
         want_items = suite.get("items")
         short = []  # (run, count) for runs missing items
-        for name in matched:
-            det = _get_resp(base, f"/api/public/datasets/{suite['name']}/runs/{name}")
-            n = len(det.json().get("datasetRunItems") or []) if det.status_code == 200 else 0
+        for experiment in matched:
+            n = len(reader.experiment_items(experiment))
             if want_items and n != want_items:
-                short.append((name[:28], n))
+                short.append((experiment.name[:28], n))
         ok = not missing and not short
         report.add("seeded_runs", ok,
                    f"runs on {suite['name']} (prefix-matched, SDK adds a timestamp suffix): "
@@ -140,30 +155,27 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
         report.add("seeded_runs", False, f"error: {exc}")
 
     # -- run items reference the production prompt + carry cost ----------------------
-    # New (2026-06-15): each run item emits a prompt-linked ``answer`` generation, so the
-    # runs reference analyst-copilot and carry a real token/cost column (parity with the
-    # production traces). Spot-check one run item's trace for the link + cost.
+    # Each run item emits a prompt-linked ``answer`` generation, so the runs reference
+    # analyst-copilot and carry a real token/cost column (parity with the production
+    # traces). Spot-check one run item's trace for the link + cost.
     try:
-        runs = _get(base, f"/api/public/datasets/{suite['name']}/runs",
-                    {"limit": 50}).get("data", [])
-        rname = runs[0].get("name") if runs else None
+        experiment = experiments[0] if experiments else None
         linked = costed = False
         detail = "no runs found"
-        if rname:
-            det = _get_resp(base, f"/api/public/datasets/{suite['name']}/runs/{rname}")
-            items = (det.json().get("datasetRunItems") or []) if det.status_code == 200 else []
-            tid = next((i.get("traceId") for i in items if i.get("traceId")), None)
-            detail = f"run {rname[:28]!r}: no item trace"
+        if experiment is not None:
+            run_items = reader.experiment_items(experiment)
+            tid = next((i.trace_id for i in run_items if i.trace_id), None)
+            detail = f"run {experiment.name[:28]!r}: no item trace"
             if tid:
-                trace = _get(base, f"/api/public/traces/{tid}")
-                for o in trace.get("observations", []):
-                    if o.get("name") != "answer":
+                trace = reader.trace(tid, with_scores=False)
+                for o in (trace.observations if trace else []):
+                    if o.name != "answer":
                         continue
-                    if o.get("promptName") == state.prompt_name and o.get("promptVersion"):
+                    if o.prompt_name == state.prompt_name and o.prompt_version:
                         linked = True
-                    if (o.get("costDetails") or {}).get("total") or o.get("calculatedTotalCost"):
+                    if _costed(o):
                         costed = True
-                detail = (f"run {rname[:28]!r} item trace {tid[:12]}… "
+                detail = (f"run {experiment.name[:28]!r} item trace {tid[:12]}… "
                           f"prompt-linked={linked}, cost={costed}")
         report.add("run_prompt_link", linked and costed, detail)
     except Exception as exc:  # noqa: BLE001
@@ -174,18 +186,19 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
     # the item scores). Assert each run carries them AND candidate B (haiku) has the
     # lowest rate_numeric_accuracy — the rejection delta must be real at the rollup.
     try:
-        ds = _get(base, f"/api/public/datasets/{suite['name']}/runs", {"limit": 50})
         by_rate = {}
         present_ok = True
-        for r in ds.get("data", []):
-            scores = _get(base, "/api/public/v2/scores",
-                          {"datasetRunId": r.get("id"), "limit": 50}).get("data", [])
-            names = {s.get("name") for s in scores}
+        for experiment in experiments:
+            scores = reader.scores(experiment_id=experiment.id, limit_pages=1)
+            names = {s.name for s in scores}
             if not {"mean_groundedness", "rate_numeric_accuracy", "verdict"} <= names:
                 present_ok = False
             for s in scores:
-                if s.get("name") == "rate_numeric_accuracy":
-                    by_rate[r.get("name", "")] = s.get("value")
+                # A rollup that came back without a number is a rollup that is not there:
+                # keeping it would put `None` into the comparison below and crash the whole
+                # check, where the honest answer is "this run has no rate_numeric_accuracy".
+                if s.name == "rate_numeric_accuracy" and s.numeric_value is not None:
+                    by_rate[experiment.name] = s.numeric_value
         worst = min(by_rate.items(), key=lambda kv: kv[1]) if by_rate else ("", None)
         delta_ok = "haiku" in worst[0]
         report.add("run_level_scores", present_ok and delta_ok and len(by_rate) >= 3,
@@ -195,9 +208,11 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
         report.add("run_level_scores", False, f"error: {exc}")
 
     try:
-        na = _get_scores(base, "numeric_accuracy")
-        fails = [s for s in na if str(s.get("stringValue") or s.get("value")) in ("fail", "0", "0.0")]
-        with_reason = sum(1 for s in fails if (s.get("comment") or "").strip())
+        na = reader.scores(name="numeric_accuracy")
+        # A categorical `fail` and the numeric 0 both mean the same red cell; the seam
+        # keeps them apart (a label has no numeric value), so ask for either.
+        fails = [s for s in na if s.string_value == "fail" or s.numeric_value == 0]
+        with_reason = sum(1 for s in fails if (s.comment or "").strip())
         ok = len(fails) >= 4 and with_reason >= 4
         report.add("candidate_b_red_cells", ok,
                    f"{len(fails)} numeric_accuracy fails ({with_reason} with reasons) — "
@@ -209,8 +224,8 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
     try:
         found = 0
         for g in state.golden:
-            r = _get_resp(base, f"/api/public/traces/{g['trace_id']}")
-            if r.status_code == 200 and "golden" in (r.json().get("tags") or []):
+            trace = reader.trace(g["trace_id"], with_scores=False)
+            if trace is not None and "golden" in (trace.tags or []):
                 found += 1
         ok = found == len(state.golden) and found >= 4
         report.add("golden_traces", ok, f"{found}/{len(state.golden)} golden traces tagged & present")
@@ -224,10 +239,9 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
         ok = False
         detail = "no flagged_pending in state"
         if tid:
-            exists = _get_resp(base, f"/api/public/traces/{tid}").status_code == 200
-            downs = _get_scores(base, "analyst_feedback")
-            has_down = any(s.get("traceId") == tid and (s.get("comment") or "").strip()
-                           for s in downs)
+            exists = reader.trace(tid, with_scores=False) is not None
+            downs = reader.scores(name="analyst_feedback", trace_id=tid)
+            has_down = any((s.comment or "").strip() for s in downs)
             leaked = tid in item_sources
             ok = exists and has_down and not leaked
             detail = (f"trace exists={exists}, down-vote+comment={has_down}, "
@@ -242,16 +256,13 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
         linked = chat_ok = False
         detail = "no golden trace in state"
         if tid:
-            trace = _get(base, f"/api/public/traces/{tid}")
-            for o in trace.get("observations", []):
-                if o.get("name") != "answer":
+            trace = reader.trace(tid, with_scores=False)
+            for o in (trace.observations if trace else []):
+                if o.name != "answer":
                     continue
-                if o.get("promptName") == state.prompt_name and o.get("promptVersion"):
+                if o.prompt_name == state.prompt_name and o.prompt_version:
                     linked = True
-                inp = o.get("input")
-                if (isinstance(inp, list) and inp and isinstance(inp[0], dict)
-                        and inp[0].get("role") == "system"
-                        and "analyst copilot" in str(inp[0].get("content", ""))):
+                if "analyst copilot" in _system_prompt_of(o):
                     chat_ok = True
             detail = f"trace {tid[:12]}… prompt-linked={linked}, chat-shaped input={chat_ok}"
         report.add("prompt_linkage", linked and chat_ok,
@@ -261,13 +272,14 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
 
     # -- review queue alive -----------------------------------------------------------
     try:
-        queues = _get(base, "/api/public/annotation-queues", {"limit": 100}).get("data", [])
+        queues = get_json(base, "/api/public/annotation-queues", {"limit": 100},
+                          throttle=throttle).get("data", [])
         q = next((x for x in queues if x.get("name") == state.queue.get("name")), None)
         ok = False
         detail = f"queue {state.queue.get('name')!r} not found"
         if q:
-            items = _get(base, f"/api/public/annotation-queues/{q['id']}/items",
-                         {"limit": 100}).get("data", [])
+            items = get_json(base, f"/api/public/annotation-queues/{q['id']}/items",
+                             {"limit": 100}, throttle=throttle).get("data", [])
             n_done = sum(1 for i in items if i.get("status") == "COMPLETED")
             n_pend = sum(1 for i in items if i.get("status") == "PENDING")
             ok = n_done >= 5 and n_pend >= 5
@@ -282,15 +294,15 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
         present = {}
         for name in ("numeric_accuracy", "groundedness", "citation_coverage",
                      "analyst_feedback"):
-            present[name] = len(_get_scores(base, name, limit_pages=1))
+            present[name] = len(reader.scores(name=name, limit_pages=1))
         # human annotations live on queue-completed traces (old timestamps — a global
         # newest-first scan misses them); check a trace known to carry them
         tid = state.golden_by_key("numeric_hallucination").get("trace_id")
         human = 0
         if tid:
-            trace = _get(base, f"/api/public/traces/{tid}")
-            human = sum(1 for s in trace.get("scores") or []
-                        if "human annotation" in (s.get("comment") or ""))
+            trace = reader.trace(tid)
+            human = sum(1 for s in (trace.scores if trace else [])
+                        if "human annotation" in (s.comment or ""))
         present["human_annotation(on golden trace)"] = human
         ok = all(v > 0 for v in present.values())
         report.add("score_methods", ok, f"score counts: {present}")

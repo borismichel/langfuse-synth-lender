@@ -2,7 +2,7 @@
 the one certification-suite, created via the **SDK ``run_experiment`` path**.
 
 IMPORTANT (cloud-vs-v3 discrepancy, found 2026-06-13): the legacy REST
-``POST /api/public/dataset-run-items`` endpoint creates dataset runs that the
+``dataset-run-items`` POST endpoint creates dataset runs that the
 **Experiments tab does NOT surface on newer Langfuse (≥ v3.185, incl. Cloud)** — the
 runs exist via the runs API but the comparison grid is empty. Only runs created
 through ``run_experiment`` register in that view. Older self-hosted (v3.179) showed

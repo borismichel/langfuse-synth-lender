@@ -25,11 +25,11 @@ from .cert_runs import _post_retry  # noqa: E402
 
 
 
-def _get(base_url: str, path: str, params: dict | None = None) -> dict:
-    resp = requests.get(f"{base_url.rstrip('/')}{path}", params=params or {},
-                        auth=_auth(), timeout=20)
-    resp.raise_for_status()
-    return resp.json()
+# Reads go through the library's primitive, writes stay on `requests` (the annotation-queue
+# POSTs below have no seam to route through). Score configs and annotation queues both
+# survived the v4 migration, so there is no endpoint here to remap — what the library buys
+# is the shared auth and the Retry-After-aware backoff (portal #211).
+from langfuse_synth_core.lfread import get_json as _get  # noqa: E402
 
 
 def score_config_ids(base_url: str, names: list[str]) -> list[str]:

@@ -11,27 +11,26 @@ slice + requirement ids.
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import requests
 
+from langfuse_synth_core.read import ReadError
+
 from ..config import Config
 from .catalog import Catalog
+from .reads import probe_json as _get
+from .reads import probe_reader
 
 if TYPE_CHECKING:
     from langfuse_synth_core.companion import CompanionAdapter
 
-
-def _auth():
-    return (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
-
-
-def _get(base: str, path: str, params: dict | None = None) -> dict:
-    resp = requests.get(f"{base.rstrip('/')}{path}", params=params or {}, auth=_auth(), timeout=15)
-    resp.raise_for_status()
-    return resp.json()
+# The annotation-queue reads go through `reads.probe_json` (the migration left those
+# endpoints alone); the *trace* reads go through the read seam, because under v4 there is no
+# trace row to GET (portal #211). Both ask once — this renders inside a live request and
+# every caller here degrades on the error rather than failing the page.
+_READ_FAILED = (ReadError, requests.RequestException)
 
 
 @dataclass
@@ -57,34 +56,36 @@ def list_candidates(cfg: Config, catalog: Catalog) -> tuple[list[Candidate], str
             return [], f"queue {qname!r} not found"
         items = _get(base, f"/api/public/annotation-queues/{queue['id']}/items",
                      {"limit": 100}).get("data", [])
-    except requests.RequestException as exc:
+    except _READ_FAILED as exc:
         return [], f"queue lookup failed: {exc}"
 
     already = {it.get("sourceTraceId")
                for ds in catalog.datasets for it in ds.items
                if it.get("sourceTraceId")}
     out = []
+    reader = probe_reader(cfg.target.base_url)   # one reader: the generation is probed once
     for qi in items:
         tid = qi.get("objectId")
         if not tid or tid in already or qi.get("objectType") != "TRACE":
             continue
-        out.append(_hydrate(cfg, tid, qi.get("status", "")))
+        out.append(_hydrate(cfg, tid, qi.get("status", ""), reader))
     return out, ""
 
 
-def _hydrate(cfg: Config, trace_id: str, status: str) -> Candidate:
-    base = cfg.target.base_url
+def _hydrate(cfg: Config, trace_id: str, status: str, reader=None) -> Candidate:
     cand = Candidate(trace_id=trace_id, status=status)
     try:
-        trace = _get(base, f"/api/public/traces/{trace_id}")
-        cand.question = trace.get("input") or {}
-        cand.produced = trace.get("output") or {}
-        cand.borrower = (trace.get("metadata") or {}).get("borrower", "")
-        cand.case_id = (trace.get("metadata") or {}).get("case_id", "")
-        for s in trace.get("scores") or []:
-            if s.get("comment") and (s.get("name") == "analyst_feedback"
-                                     or "human annotation" in s.get("comment", "")):
-                cand.reviewer_comments.append(s["comment"])
+        trace = (reader or probe_reader(cfg.target.base_url)).trace(trace_id)
+        if trace is None:
+            return cand
+        cand.question = trace.input or {}
+        cand.produced = trace.output or {}
+        cand.borrower = (trace.metadata or {}).get("borrower", "")
+        cand.case_id = (trace.metadata or {}).get("case_id", "")
+        for s in trace.scores:
+            if s.comment and (s.name == "analyst_feedback"
+                              or "human annotation" in s.comment):
+                cand.reviewer_comments.append(s.comment)
         # the deterministic conventions produce the corrected ground truth for our
         # templated questions — prefill, reviewer confirms/edits
         try:
@@ -93,8 +94,8 @@ def _hydrate(cfg: Config, trace_id: str, status: str) -> Candidate:
             cand.suggested_expected = answer_deterministic(cand.question).model_dump()
         except Exception:  # noqa: BLE001 — free-form trace: reviewer types it
             cand.suggested_expected = {}
-    except requests.RequestException:
-        pass
+    except _READ_FAILED:
+        pass          # an unreadable trace prefills nothing; the reviewer types it
     return cand
 
 
@@ -103,23 +104,25 @@ def promote(cfg: Config, *, trace_id: str, dataset_name: str, slice_name: str,
             adapter: "CompanionAdapter | None" = None) -> tuple[str, str]:
     """Create the dataset item. Returns (item_id, error). The SDK client comes from the
     Companion Adapter when the live Surface hands one in (Spec G · G5, #144); the trace
-    lookup below stays on this module's own REST reader, beside the adapter."""
+    lookup below goes through the read seam, which answers the same row whichever API
+    generation the target serves (portal #211)."""
     try:
         expected = json.loads(expected_output_json)
     except json.JSONDecodeError as exc:
         return "", f"expected output is not valid JSON: {exc}"
-    base = cfg.target.base_url
     try:
-        trace = _get(base, f"/api/public/traces/{trace_id}")
-    except requests.RequestException as exc:
+        trace = probe_reader(cfg.target.base_url).trace(trace_id, with_scores=False)
+    except _READ_FAILED as exc:
         return "", f"trace lookup failed: {exc}"
+    if trace is None:
+        return "", f"trace {trace_id} not found"
 
     from ..clients import langfuse as get_langfuse
 
     lf = get_langfuse(cfg, adapter=adapter)
     item = lf.create_dataset_item(
         dataset_name=dataset_name,
-        input=trace.get("input") or {},
+        input=trace.input or {},
         expected_output=expected,
         metadata={"slice": slice_name, "curated": True, "promoted_via": "workbench",
                   "requirement_ids": requirement_ids},

@@ -8,27 +8,23 @@ the catalog falls back to what ``.synth_state.json`` and the deterministic plan 
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
-
-import requests
 
 from ..config import Config
 from ..state import RunState
+from .reads import probe_json as _get
 
-
-def _auth():
-    return (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
-
-
-def _get(base: str, path: str, params: dict | None = None, timeout: int = 12) -> dict:
-    resp = requests.get(f"{base.rstrip('/')}{path}", params=params or {}, auth=_auth(),
-                        timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+# Every endpoint below — prompts, datasets, dataset items, score configs, the unstable
+# evaluator surface — survived the v4 migration untouched, so the read seam does not model
+# them and `lfread.get_json` is the right primitive: it carries the shared auth and the
+# Retry-After-aware backoff, which this module used to re-implement with a bare
+# `requests.get` and no retry at all (portal #211). It reads through `reads.probe_json`,
+# which asks once, because the whole module is built to degrade to `offline_catalog`.
 
 
 def _paged(base: str, path: str, params: dict | None = None, max_pages: int = 10) -> list[dict]:
+    """Every row of a numbered-page endpoint. All of these survived the v4 migration and
+    still answer `meta.totalPages`; the cursor-paginated v4 APIs are the read seam's."""
     rows: list[dict] = []
     page = 1
     while page <= max_pages:

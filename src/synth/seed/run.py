@@ -6,8 +6,11 @@
     A / candidate B) -> the certification-review queue (completed + pending)
 
 The seed path makes **no model calls**: every trace is a deterministic, templated
-CopilotAnswer ingested backdated via the batch API. Writes ``.synth_state.json`` and
-the committed golden-case fixtures on the way out.
+CopilotAnswer spooled as backdated OTLP spans (portal #210; the pin lives in
+``synth.seed.__init__``) — scores stay on legacy ingestion, the one envelope type
+that survives v4. Re-importing a Spool is refused rather than resumed: OTLP appends,
+it does not upsert. Writes ``.synth_state.json`` and the committed golden-case
+fixtures on the way out.
 """
 from __future__ import annotations
 
@@ -94,11 +97,12 @@ def run_seed(cfg: Config, *, dry_run: bool = False, persist: bool = True,
     if dry_run:
         log("  dry-run: spool written, nothing imported")
     elif not do_import:
-        log("  --no-import: spool written, skipping batch import (resume with `synth import-spool`)")
+        log("  --no-import: spool written, skipping import (run `synth import-spool` once — "
+            "OTLP import is non-resumable)")
     else:
-        log(f"· batch-importing {ing.spooled} events from disk (chunks of {ing.chunk_size}) …")
+        log(f"· importing {ing.spooled} events from disk (chunks of {ing.chunk_size}) …")
         ing.import_spool(log=lambda m: None)
-        log(f"✓ batch-imported {ing.sent} events")
+        log(f"✓ imported {ing.sent} events")
 
     # -- 4. the hosted certification-suite ----------------------------------------
     suite_info = {"name": cfg.certification.dataset.name, "items_created": len(plan.cert.suite)}

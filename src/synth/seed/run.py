@@ -215,9 +215,12 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
     - **code evaluators** (numeric_accuracy, citation_format, escalation_correctness) —
       deterministic, **no LLM connection needed**, created always;
     - **LLM-as-judge** (groundedness, citation_coverage) — need an LLM connection
-      (ANTHROPIC_API_KEY upserts one), else logged and skipped.
+      (ANTHROPIC_API_KEY upserts one), else logged and skipped;
+    and then retires anything the project still carries from before v4 (see
+    :mod:`synth.workbench.cutover` for the lifecycle this is step one and two of).
     Best-effort: the unstable evaluator API is Cloud / newer-self-hosted only; anything
     missing is logged, never fatal."""
+    from ..workbench.cutover import retire_legacy
     from ..workbench.judges import (
         CODE_EVALUATORS,
         JUDGE_TEMPLATES,
@@ -292,22 +295,36 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
             _rule, rerr = ensure_rule(cfg, judge, ds_ids)  # experiment, sampling 1.0
             if rerr:
                 jnotes.append(f"{name} exp-rule: {rerr[:80]}")
-        # Live production-trace monitoring with the SAME judge (target=observation).
-        # sampling=0.0 → created DEACTIVATED (paused, zero triggers). Either way, rules
-        # never backfill the backdated seed, so this fires zero judge calls on the seed.
+        # Live monitoring with the SAME judge, now scoped to the copilot turn's ROOT
+        # observation (portal #212). Always created DISABLED: under v4 a successor is
+        # validated on newly ingested data and compared with its predecessor before it is
+        # switched on, and `synth evaluators --enable-live` is where that happens. Rules
+        # never backfill the backdated seed either way, so this fires zero judge calls.
         s = cfg.certification.trace_judge_sampling
         _trule, trerr = ensure_rule(cfg, judge, ds_ids, target="observation",
-                                    sampling=max(s, 0.01), enabled=s > 0)
+                                    sampling=max(s, 0.01), enabled=False)
         if trerr:
-            jnotes.append(f"{name} trace-rule: {trerr[:80]}")
+            jnotes.append(f"{name} observation-rule: {trerr[:80]}")
     if judge_made:
         s = cfg.certification.trace_judge_sampling
-        live = (f"live trace monitoring @ {s:.0%} sampling" if s > 0
-                else "trace monitoring created PAUSED (set trace_judge_sampling>0 to opt in)")
+        nxt = (f"`synth evaluators --enable-live` turns them on @ {s:.0%} sampling"
+               if s > 0 else
+               "set certification.trace_judge_sampling > 0 and run "
+               "`synth evaluators --enable-live` to opt in")
         log(f"✓ LLM judges: {judge_made}/{len(JUDGE_TEMPLATES)} created + scoped to "
-            f"experiments (1.0) and traces ({live}); rules never backfill, so the seed "
-            "triggers zero judge runs"
+            "experiments (1.0) and to the turn's root observation (created DISABLED); "
+            f"rules never backfill, so the seed triggers zero judge runs — {nxt}"
             + (f" (notes: {'; '.join(jnotes)})" if jnotes else ""))
+
+    # 3. Retire whatever this project still carries from before v4: a rule on a target v4
+    # no longer serves, or this kit's own pre-v4 live rule. Disabled, never deleted — the
+    # row keeps its configuration and its scores, so a rollback is one PATCH back.
+    retired, rnotes = retire_legacy(cfg)
+    if retired:
+        log(f"✓ legacy evaluation rules retired (disabled, not deleted): {', '.join(retired)}"
+            " — re-enable in the UI to roll back")
+    if rnotes:
+        log(f"· legacy rule retirement: {'; '.join(rnotes)}")
     else:
         log("· LLM judges: not created (" + ("; ".join(jnotes) or "unknown")
             + ") — add an LLM connection (ANTHROPIC_API_KEY or project settings) and re-run `synth evaluators`")

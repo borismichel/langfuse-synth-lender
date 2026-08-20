@@ -58,9 +58,12 @@ def test_live_rule_targets_exactly_one_observation_per_trace(cfg, api):
     assert body["target"] == "observation"
     assert body["name"] == "wb-groundedness-observations"
     cols = {f["column"]: f for f in body["filter"]}
+    # Filter types are per column and a mismatch is a 400 the seed would only log:
+    # `isRootObservation` is boolean (`=`), `traceName` is stringOptions (`any of`).
     assert cols["isRootObservation"] == {"type": "boolean", "column": "isRootObservation",
                                          "operator": "=", "value": True}
-    assert cols["traceName"]["value"] == "copilot-turn"
+    assert cols["traceName"] == {"type": "stringOptions", "column": "traceName",
+                                 "operator": "any of", "value": ["copilot-turn"]}
     assert "type" not in cols                       # the GENERATION filter is gone
     assert rule is not None
 
@@ -105,6 +108,37 @@ def test_no_rule_is_built_on_a_retired_target(cfg, api):
     for target in ("observation", "experiment"):
         judges.ensure_rule(cfg, judge, ["ds-1"], target=target)
         assert api[-1][2]["target"] in cutover.LIVE_TARGETS
+
+
+def test_an_existing_rule_is_updated_onto_the_v4_configuration(cfg, monkeypatch):
+    """A project seeded by an earlier version of this kit already holds a rule under the
+    successor's name, carrying that version's filter. The create 409s, and leaving it at
+    that would keep the stale selector — the exact silent drift the migration ends."""
+    seen: list[tuple[str, str, dict]] = []
+
+    def _request(method, url, **kw):
+        seen.append((method, url, kw.get("json") or {}))
+        if method == "POST":
+            return _Resp(409, {"error": "a rule with this name exists"}), ""
+        return _Resp(200, {}), ""
+
+    monkeypatch.setattr(judges, "_request", _request)
+    monkeypatch.setattr(judges, "list_rules", lambda base: (
+        [{"id": "r-old", "name": "wb-groundedness-observations", "target": "observation",
+          "enabled": True}], True))
+
+    judge = {"name": "groundedness", "type": "llm_as_judge", "variables": ["input", "output"]}
+    rule, err = judges.ensure_rule(cfg, judge, [], target="observation", enabled=False)
+    assert not err and rule["id"] == "r-old"
+
+    method, url, body = seen[-1]
+    assert method == "PATCH" and url.endswith("/evaluation-rules/r-old")
+    assert {f["column"] for f in body["filter"]} == {"traceName", "isRootObservation"}
+    assert body["mapping"] == [{"variable": "input", "source": "input"},
+                               {"variable": "output", "source": "output"}]
+    # A rule an operator already validated and switched on must not be silently disabled
+    # by a re-seed, so the desired enabled state is not part of the update.
+    assert "enabled" not in body
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +187,21 @@ def test_retire_disables_the_legacy_rule_and_never_deletes_it(cfg, inventoried, 
     for _m, url, body in api:
         assert body == {"enabled": False}
         assert url.endswith(("/evaluation-rules/r3", "/evaluation-rules/r4"))
+
+
+def test_a_predecessor_is_not_retired_without_its_successor(cfg, monkeypatch, api):
+    """Every write in `judges` degrades to a logged note rather than failing a seed. That
+    must not let a retirement outlive the creation it was paired with: a rejected filter
+    would otherwise leave the old rule off and no new one on, and judging stops silently."""
+    no_successor = [r for r in _RULES if r["id"] != "r2"]
+    monkeypatch.setattr(cutover, "list_rules", lambda base: (no_successor, True))
+    retired, notes = cutover.retire_legacy(cfg)
+
+    # r4 is on a retired target — dead at the v4 cutover whatever we do — so it still goes.
+    assert retired == ["hand-made-trace-rule"]
+    assert any("wb-groundedness-traces" in n and "left ENABLED" in n for n in notes)
+    assert [url for _m, url, _b in api] == [api[0][1]]
+    assert api[0][1].endswith("/evaluation-rules/r4")
 
 
 def test_retire_is_a_no_op_without_the_unstable_api(cfg, monkeypatch, api):
@@ -248,3 +297,48 @@ def test_enable_turns_on_the_validated_successor_at_the_configured_sampling(
     assert enabled == ["wb-groundedness-observations"]
     assert api == [("PATCH", api[0][1], {"enabled": True, "sampling": 0.05})]
     assert api[0][1].endswith("/evaluation-rules/r2")
+
+
+# ---------------------------------------------------------------------------
+# What the seed tells the operator
+# ---------------------------------------------------------------------------
+def _populate(cfg, monkeypatch, *, judges_available=True, judge_error="", retired=("wb-g-traces",)):
+    """Run `_populate_managed_evaluators` with the whole unstable surface stubbed, and
+    return the lines it logged. The log IS the operator's only view of a step that is
+    best-effort by design, so its lines are behaviour."""
+    from synth.seed import run as seed_run
+
+    monkeypatch.setattr(judges, "list_judges", lambda base: ([], judges_available))
+    monkeypatch.setattr(judges, "ensure_code_evaluator",
+                        lambda cfg, name, source: ({"name": name, "type": "code"}, ""))
+    monkeypatch.setattr(judges, "ensure_llm_connection", lambda cfg: (True, "upserted"))
+    monkeypatch.setattr(judges, "ensure_judge",
+                        lambda cfg, name: ((None, judge_error) if judge_error
+                                           else ({"name": name, "type": "llm_as_judge"}, "")))
+    monkeypatch.setattr(judges, "ensure_rule",
+                        lambda cfg, judge, ds, **kw: ({"name": "r"}, ""))
+    monkeypatch.setattr(cutover, "retire_legacy", lambda cfg: (list(retired), []))
+    monkeypatch.setattr("synth.workbench.reads.probe_json",
+                        lambda base, path, params=None: {"data": []})
+
+    lines: list[str] = []
+    seed_run._populate_managed_evaluators(cfg, log=lines.append)
+    return lines
+
+
+def test_the_seed_reports_the_judges_it_created_and_what_it_retired(cfg, monkeypatch):
+    lines = _populate(cfg, monkeypatch)
+    joined = "\n".join(lines)
+    assert "LLM judges: 2/2 created" in joined
+    assert "created DISABLED" in joined
+    assert "--enable-live" in joined
+    assert "legacy evaluation rules retired (disabled, not deleted): wb-g-traces" in joined
+    # The "not created" branch belongs to the judges, not to the retirement that follows it.
+    assert "LLM judges: not created" not in joined
+
+
+def test_the_seed_says_so_when_no_judge_could_be_created(cfg, monkeypatch):
+    lines = _populate(cfg, monkeypatch, judge_error="no LLM connection", retired=())
+    joined = "\n".join(lines)
+    assert "LLM judges: not created" in joined and "no LLM connection" in joined
+    assert "LLM judges: 2/2 created" not in joined

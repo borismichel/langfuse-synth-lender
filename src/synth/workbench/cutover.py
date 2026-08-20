@@ -6,8 +6,10 @@ this kit left there. That is what makes the v4 evaluator migration different fro
 of Spec H — the write path and the read seam changed code, this changes rows in someone
 else's database — and it is why the migration is a lifecycle rather than an edit:
 
-1. **provision** the successor, always disabled (:func:`ensure_successors`, run by `seed`);
-2. **retire** the predecessor by disabling it, never deleting it (:func:`retire_legacy`);
+1. **provision** the successor, always disabled (``judges.ensure_rule``, called by
+   ``seed.run._populate_managed_evaluators`` — i.e. by `seed` and by `synth evaluators`);
+2. **retire** the predecessor by disabling it, never deleting it (:func:`retire_legacy`,
+   called from the same place);
 3. **validate** the successor on newly ingested data and compare its scores against the
    legacy rule's (:func:`compare`);
 4. **enable** it, at the configured sampling, only once step 3 is satisfied
@@ -51,24 +53,23 @@ RETIRED_TARGETS = ("trace", "dataset")
 #: ``expected_output``) is experiment-only.
 OBSERVATION_SOURCES = ("input", "output", "metadata", "tool_calls")
 
-#: The deployment names this kit has ever created for its live rule. The first is the
-#: pre-v4 one, kept here so :func:`retire_legacy` can recognise its own predecessor and
-#: leave every other project's rules alone.
+#: The suffix this kit's live rule carried before v4 (``wb-<judge>-traces``). Kept so
+#: :func:`retire_legacy` can recognise its own predecessor by name and leave every other
+#: project's rules alone.
 _LEGACY_LIVE_SUFFIX = "-traces"
 
 
 def _ours(rule: dict) -> bool:
-    """True for a rule this kit created — either successor naming, or the pre-v4 one."""
+    """True for a rule this kit created — under the current naming or the pre-v4 one.
+
+    A rule is ours when its *deployment* name is the one we would give a rule for its
+    evaluator; two rules can share an evaluator and only one of them be ours."""
     name = rule.get("name") or ""
     judge = (rule.get("evaluator") or {}).get("name")
-    if judge and name == f"wb-{judge}{_LEGACY_LIVE_SUFFIX}":
-        return True
-    return any(name == rule_name(j, t) for j in _judge_names(rule) for t in LIVE_TARGETS)
-
-
-def _judge_names(rule: dict) -> list[str]:
-    name = (rule.get("evaluator") or {}).get("name")
-    return [name] if name else []
+    if not judge:
+        return False
+    return (name == f"wb-{judge}{_LEGACY_LIVE_SUFFIX}"
+            or any(name == rule_name(judge, t) for t in LIVE_TARGETS))
 
 
 @dataclass
@@ -76,7 +77,6 @@ class Inventory:
     """What the project currently holds, split by what the migration must do with it."""
 
     api_available: bool = True
-    rules: list[dict] = field(default_factory=list)
     #: Rules already on a v4 target and named by this kit's current scheme.
     successors: list[dict] = field(default_factory=list)
     #: Rules to retire: a legacy target, or this kit's pre-v4 live rule.
@@ -101,7 +101,7 @@ def inventory(cfg: Config) -> Inventory:
     both lists on purpose: switching off someone else's evaluation is not this migration's
     business."""
     rules, available = list_rules(cfg.target.base_url)
-    inv = Inventory(api_available=available, rules=list(rules))
+    inv = Inventory(api_available=available)
     if not available:
         return inv
     for rule in rules:
@@ -117,10 +117,19 @@ def inventory(cfg: Config) -> Inventory:
 
 
 def retire_legacy(cfg: Config, inv: Inventory | None = None) -> tuple[list[str], list[str]]:
-    """Disable every legacy rule. Returns ``(retired names, notes)``.
+    """Disable every legacy rule whose successor is in place. Returns ``(names, notes)``.
 
     Disabled, never deleted: the row keeps its filters, mappings and history, so a rollback
-    is one PATCH back to ``enabled=true`` and the scores it already wrote stay readable."""
+    is one PATCH back to ``enabled=true`` and the scores it already wrote stay readable.
+
+    **A predecessor is only retired once its successor exists.** Everything in
+    :mod:`.judges` degrades to a logged note rather than failing a `seed` — which is right
+    for a capability that may be absent, and wrong if it lets a retirement outlive the
+    creation it was paired with. A rejected filter or an absent LLM connection would
+    otherwise leave the project with the old rule off and no new one on: judging silently
+    stops, and the log line that said so scrolled past during a seed. A rule on a
+    **retired target** is exempt from that check — it stops producing results at the v4
+    cutover whatever we do, so leaving it enabled buys nothing."""
     inv = inv or inventory(cfg)
     if not inv.api_available:
         return [], ["unstable evaluator API not available — retire the legacy rule in the UI"]
@@ -128,8 +137,13 @@ def retire_legacy(cfg: Config, inv: Inventory | None = None) -> tuple[list[str],
     for rule in inv.legacy:
         if rule.get("enabled") is False:
             continue                                   # already retired; nothing to do
-        ok, err = patch_rule(cfg, rule["id"], enabled=False)
         name = rule.get("name") or rule["id"]
+        judge = (rule.get("evaluator") or {}).get("name")
+        if rule.get("target") not in RETIRED_TARGETS and not inv.successor(judge or ""):
+            notes.append(f"{name}: left ENABLED — its observation successor is not in this "
+                         "project, so retiring it would stop judging with nothing to take over")
+            continue
+        ok, err = patch_rule(cfg, rule["id"], enabled=False)
         if ok:
             retired.append(name)
         else:

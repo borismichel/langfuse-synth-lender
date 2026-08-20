@@ -317,8 +317,14 @@ COPILOT_TRACE_NAME = "copilot-turn"
 #: What this replaces was ``type any of [GENERATION]``, which under v4 matched the planning
 #: generation *and* the answer generation of every turn: two scores per trace, one of them
 #: grading the planner's tool-call JSON.
+#: Filter *types* are per column and the API rejects a mismatch with
+#: ``400 invalid_filter_value``, so these are taken from the unstable API's own
+#: supported-columns table for ``target=observation`` and not from the migration guide's
+#: prose: ``traceName`` is ``stringOptions`` (``any of`` / ``none of``, never a bare ``=``),
+#: ``isRootObservation`` is ``boolean`` (``=`` / ``<>``).
 ROOT_OBSERVATION_FILTER = [
-    {"type": "string", "column": "traceName", "operator": "=", "value": COPILOT_TRACE_NAME},
+    {"type": "stringOptions", "column": "traceName", "operator": "any of",
+     "value": [COPILOT_TRACE_NAME]},
     {"type": "boolean", "column": "isRootObservation", "operator": "=", "value": True},
 ]
 
@@ -429,5 +435,19 @@ def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str], *,
     if resp.status_code in (200, 201):
         return resp.json(), ""
     if resp.status_code == 409:
-        return {"name": name}, ""  # already exists — fine
+        # The rule already exists. "Fine" is not good enough here: a project seeded by an
+        # earlier version of this kit carries that version's filter, and leaving it is
+        # exactly the silent-drift the v4 migration exists to end. The API's own recovery
+        # guidance for a 409 is to PATCH the existing resource, so re-run the configuration
+        # onto it. `enabled` is deliberately NOT sent — a rule an operator has already
+        # validated and switched on must not be quietly switched off by a re-seed.
+        existing, available = list_rules(base)
+        match = next((r for r in existing if r.get("name") == name), None)
+        if not available or match is None:
+            return {"name": name}, ""     # can't read it back; the rule is there, leave it
+        fields = {k: body[k] for k in ("target", "sampling", "filter") if k in body}
+        if "mapping" in body:
+            fields["mapping"] = body["mapping"]
+        ok, perr = patch_rule(cfg, match["id"], **fields)
+        return (match, "") if ok else (match, f"exists; update failed — {perr}")
     return None, f"{resp.status_code}: {resp.text[:400]}"

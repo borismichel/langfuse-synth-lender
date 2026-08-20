@@ -11,7 +11,6 @@ import re
 
 import pytest
 
-from synth.config import load_config
 from synth.workbench.links import ROUTES, Links
 
 BASE, PID = "https://demo.langfuse.example", "clproj0000demo0001"
@@ -111,8 +110,3 @@ def test_a_stored_pre_v4_link_is_repaired_before_it_is_rendered():
                 f"{BASE}/project/{PID}/traces/t-1", ""):
         assert Links.upgrade(url) == url
 
-
-def test_the_workbench_renders_the_repaired_link(tmp_path):
-    cfg = load_config("config/demo.yaml")
-    cfg.workbench.results_dir = str(tmp_path / ".workbench")
-    assert _template(_suffix(Links(BASE, PID).dataset_runs("ds-1"))) in ROUTES

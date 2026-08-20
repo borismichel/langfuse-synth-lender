@@ -315,6 +315,9 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
             "experiments (1.0) and to the turn's root observation (created DISABLED); "
             f"rules never backfill, so the seed triggers zero judge runs — {nxt}"
             + (f" (notes: {'; '.join(jnotes)})" if jnotes else ""))
+    else:
+        log("· LLM judges: not created (" + ("; ".join(jnotes) or "unknown")
+            + ") — add an LLM connection (ANTHROPIC_API_KEY or project settings) and re-run `synth evaluators`")
 
     # 3. Retire whatever this project still carries from before v4: a rule on a target v4
     # no longer serves, or this kit's own pre-v4 live rule. Disabled, never deleted — the
@@ -325,9 +328,6 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
             " — re-enable in the UI to roll back")
     if rnotes:
         log(f"· legacy rule retirement: {'; '.join(rnotes)}")
-    else:
-        log("· LLM judges: not created (" + ("; ".join(jnotes) or "unknown")
-            + ") — add an LLM connection (ANTHROPIC_API_KEY or project settings) and re-run `synth evaluators`")
 
 
 def _golden_scores(rng: Rng, cfg: Config, spec, golden) -> list[dict]:

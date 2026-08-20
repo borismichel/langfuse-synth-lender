@@ -39,7 +39,7 @@ pytest -q                                           # determinism + truth table 
 | Suite slices | Datasets → cert-figure-extraction → items | `metadata.slice` populated; curated items link to source traces |
 | Baseline run | cert-figure-extraction → Experiments | `baseline-<incumbent>` dated last week; red `figure_accuracy` cells with reasons |
 | Parachute | Datasets → Experiments | `cert-2026-Q1-<failed>` markedly red across suites |
-| Queues | Annotation queues | `ground-truth-intake` + `certification-signoff` with completed history |
+| Queues | Human Annotation | `ground-truth-intake` + `certification-signoff` with completed history |
 | Prompt pin | Prompts → filing_copilot | one version, label `production` |
 
 ## 3 · Live-path rehearsal (needs ANTHROPIC_API_KEY)

@@ -161,16 +161,44 @@ def enrich(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
 
 @app.command()
 def evaluators(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
+               enable_live: bool = typer.Option(
+                   False, "--enable-live",
+                   help="Enable the observation-scoped live rules, after validating them."),
+               tolerance: float = typer.Option(
+                   0.05, "--tolerance",
+                   help="Numeric agreement tolerance when comparing with the legacy rule."),
                set_overrides: SetOverrides = None):
     """Populate the project's managed LLM-judge evaluators (groundedness,
     citation_coverage) + scope them to the suite — without re-seeding. Needs the
     unstable evaluator API (Cloud / newer self-hosted) and an LLM connection: set
     ANTHROPIC_API_KEY in .env and this upserts the connection too, else add one in
-    project settings first."""
+    project settings first. Also retires any rule the project still carries on a
+    target v4 no longer serves — disabled, never deleted.
+
+    The live (observation-scoped) rules are always created DISABLED. `--enable-live`
+    is the separate, deliberate step that turns them on: it compares the successor's
+    scores with the legacy rule's on newly ingested data first, and refuses when the
+    successor has not scored anything yet."""
     from .seed.run import _populate_managed_evaluators
+    from .workbench.cutover import enable_successors
 
     cfg = _load(config, set_overrides)
-    _populate_managed_evaluators(cfg, log=lambda m: typer.echo(m))
+    if not enable_live:
+        _populate_managed_evaluators(cfg, log=lambda m: typer.echo(m))
+        return
+    sampling = cfg.certification.trace_judge_sampling
+    if sampling <= 0:
+        typer.echo("certification.trace_judge_sampling is 0.0 — raise it above 0 (in the "
+                   "config or with --set) before enabling live judging.", err=True)
+        raise typer.Exit(code=2)
+    enabled, notes = enable_successors(cfg, sampling=sampling, tolerance=tolerance)
+    for note in notes:
+        typer.echo(f"· {note}")
+    if not enabled:
+        typer.echo("· nothing enabled — validate the successors against newly ingested "
+                   "traffic first (see the notes above).", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"✓ enabled @ {sampling:.0%} sampling: {', '.join(enabled)}")
 
 
 @app.command()

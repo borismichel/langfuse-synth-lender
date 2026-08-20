@@ -134,6 +134,10 @@ def _seed_runs(cfg, spec) -> None:
             evaluator_shas={"numeric_accuracy": "n" * 64, "citation_format": "c" * 64},
             started="2026-06-09T09:00:00+00:00", finished="2026-06-09T09:04:00+00:00",
             state="done", rows=rows, gates=gate_verdicts(rows, spec.model_dump()),
+            # Deliberately the PRE-v4 stored route: a run recorded before the cutover kept
+            # `datasets/{id}/runs`, which has no page under v4. The workbench repairs a
+            # stored link on the way out (`Links.upgrade`), so the golden shows
+            # `/experiments` — this fixture is what keeps that repair covered (portal #212).
             langfuse_runs=[{"dataset": "certification-suite", "run_name": f"{spec.ref}-{model}",
                             "runs_url": f"{STATE_BASE_URL}/project/{STATE_PROJECT_ID}"
                                         f"/datasets/ds-golden/runs"}]))

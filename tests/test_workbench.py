@@ -223,7 +223,9 @@ def test_deep_links_are_project_scoped_or_absent():
 
     lf = Links("http://localhost:3000", "proj-123")
     assert lf.trace("abc") == "http://localhost:3000/project/proj-123/traces/abc"
-    assert lf.dataset_runs("ds-1") == "http://localhost:3000/project/proj-123/datasets/ds-1/runs"
+    # v4 renamed a dataset run to an experiment and moved the list — test_deep_links.py
+    assert lf.dataset_runs("ds-1") == (
+        "http://localhost:3000/project/proj-123/datasets/ds-1/experiments")
     assert lf.dataset_item("ds-1", "it-9").endswith("/datasets/ds-1/items/it-9")
     assert lf.prompt("analyst-copilot").endswith("/prompts/analyst-copilot")
     assert lf.queue("q-7").endswith("/annotation-queues/q-7")

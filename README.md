@@ -210,12 +210,36 @@ each to the suite with a `target=experiment` evaluation rule:
   - `target=experiment` (sampling 1.0) — every certification run, like the code
     evaluators;
   - `target=observation` (low sampling) — the SAME judges monitoring live copilot
-    generations, the continuous-monitoring half of the story. Controlled by
-    `certification.trace_judge_sampling`: **0.0 (default) creates the trace rules
-    PAUSED** (visible, zero triggers); set it to ~`0.05` to opt in to low-rate live
-    judging of new traffic. The code evaluators stay experiment-only — they compare
-    against `expected_output`, which the API allows only for `target=experiment`, and
-    live traffic has no ground-truth label.
+    traffic, the continuous-monitoring half of the story. The rule selects the turn's
+    **root observation** (`traceName = copilot-turn` + `isRootObservation = true`) — the
+    one observation carrying the analyst's question and the copilot's answer together.
+    Under v4 an observation evaluator cannot read siblings or children, so every variable
+    it reads has to already be on its target. Sampling comes from
+    `certification.trace_judge_sampling`, but the rule is **always created disabled**;
+    see the cutover below. The code evaluators stay experiment-only: they compare against
+    `expected_output`, a source only `target=experiment` exposes, and live traffic has no
+    ground-truth label. (`experiment` *is* v4's successor to the legacy `dataset` target,
+    so that is a migrated rule, not an unmigrated one.)
+
+**The v4 evaluator cutover (`synth.workbench.cutover`).** Evaluation rules are project
+state, not repo state, so a `seed` meets whatever the previous version of this kit left in
+the project. The migration is therefore a lifecycle, not an edit: `seed` (and `synth
+evaluators`) **provisions** the observation successor disabled and **retires** any rule the
+project still holds on a target v4 no longer serves — including this kit's own pre-v4 live
+rule, which matched `type = GENERATION` and so scored the planning generation *and* the
+answer generation of every turn. Retirement is `enabled=false`, never a delete, so rolling
+back is switching one rule back on and the other off. Turning the successor on is a
+separate, deliberate step — `synth evaluators --enable-live` — which compares the
+successor's scores with the legacy rule's on newly ingested data first and refuses when the
+successor has not scored anything yet.
+
+**Standing risk: the evaluator API is marked `unstable` by Langfuse.**
+`/api/public/unstable/evaluators` and `/api/public/unstable/evaluation-rules` are the only
+programmatic way to provision managed evaluators, and the only surface that still reads
+back a project's pre-v4 rule targets — so this kit depends on an API that may be reshaped
+without a major version. The dependency is accepted and contained rather than designed
+away: every call degrades to a logged note plus the UI instructions in the runbook, and
+none of it can abort a `seed`. Expect a change there rather than treating one as an outage.
 
 Evaluation rules are **live-ingestion only — they never backfill**, so scoping a rule
 (experiment or observation) fires **zero** evaluations on the already-seeded, backdated

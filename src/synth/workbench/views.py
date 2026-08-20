@@ -466,7 +466,9 @@ def build_router(cfg: Config, adapter: "CompanionAdapter | None" = None):
             stored = next((x.get("runs_url") for x in run.langfuse_runs
                            if x["dataset"] == ds_name and x.get("runs_url")), "")
             if stored:
-                return stored
+                # Repaired on the way out: a run recorded before the v4 cutover stored the
+                # retired `datasets/{id}/runs` route, which has no page (portal #212).
+                return Links.upgrade(stored)
             d = cat.dataset(ds_name)
             return lf.dataset_runs(d.id) if d and d.id else ""
 

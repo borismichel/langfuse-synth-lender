@@ -3,10 +3,24 @@
 The workbench can create the two scenario judges (groundedness_cert /
 policy_compliance) programmatically and scope them to the suites' experiment runs via
 evaluation rules — removing the manual "create the judge in the UI" step where the
-server supports it. The surface is marked *unstable* by Langfuse, so every call here
-degrades gracefully: on 404 (older self-hosted) or validation errors, the UI falls
-back to the copy-paste instructions that already live in the runbook, and shows the
-server's structured error verbatim.
+server supports it.
+
+**Standing risk: this whole module talks to an API Langfuse marks *unstable*.**
+``/api/public/unstable/evaluators`` and ``/api/public/unstable/evaluation-rules`` are the
+only programmatic way to provision managed evaluators, and they are also the only surface
+that still *reads back* the legacy ``trace`` and ``dataset`` rule targets a project may
+carry from before v4 — so the migration in :mod:`synth.workbench.cutover` cannot be done
+without them. Unstable means the request and response shapes may change without a major
+version, and this kit's evaluator provisioning is the surface that breaks when they do.
+The risk is accepted, not designed away, and it is contained the same way the
+self-hosted-gap risk is: every call degrades to a logged note plus the UI instructions in
+the Presenter Runbook, and a failure here can never abort a `seed`. Expect a change here
+rather than treating one as an outage; re-read the current schema before touching a body
+in this module.
+
+Every call therefore degrades gracefully: on 404 (older self-hosted) or validation errors,
+the UI falls back to the copy-paste instructions that already live in the runbook, and
+shows the server's structured error verbatim.
 """
 from __future__ import annotations
 
@@ -148,7 +162,9 @@ def ensure_code_evaluator(cfg: Config, name: str, source: str) -> tuple[dict | N
     existing evaluation rules to it. So re-running ``synth evaluators`` ships code fixes;
     identical source is a no-op (no version churn)."""
     base = cfg.target.base_url
-    existing, available = list_judges(base)
+    existing, available, err = list_judges(base)
+    if err:
+        return None, err
     if not available:
         return None, "unstable evaluator API not available"
     desired = source.strip() + "\n"
@@ -215,16 +231,13 @@ def ensure_llm_connection(cfg: Config) -> tuple[bool, str]:
     return False, f"{resp.status_code}: {resp.text[:200]}"
 
 
-def list_judges(base: str) -> tuple[list[dict], bool]:
-    """Returns (evaluators, api_available).
+def list_judges(base: str) -> tuple[list[dict], bool, str]:
+    """Returns ``(evaluators, api_available, error)``.
 
     A 404 is the capability answer — older self-hosted has no unstable evaluator API and the
-    workbench degrades to logged UI instructions — and so is any transport failure, which is
-    why every exception lands in the same place rather than propagating."""
-    try:
-        return probe_json(base, "/api/public/unstable/evaluators").get("data", []), True
-    except requests.RequestException:   # 404, timeout, reset: all mean "no API here"
-        return [], False
+    workbench degrades to logged UI instructions. Nothing else is: see :func:`_probe_list`
+    for why a busy host must not be reported as an old one."""
+    return _probe_list(base, "/api/public/unstable/evaluators")
 
 
 def _judge_provider(base: str, provider: str) -> str:
@@ -260,7 +273,9 @@ def ensure_judge(cfg: Config, name: str) -> tuple[dict | None, str]:
     tpl = JUDGE_TEMPLATES.get(name)
     if tpl is None:
         return None, f"unknown judge template {name!r}"
-    existing, available = list_judges(base)
+    existing, available, err = list_judges(base)
+    if err:
+        return None, err
     if not available:
         return None, ("unstable evaluator API not available on this server — create the "
                       "judge in the UI (prompt + mappings are in DEMO_SCRIPT.md beat 4)")
@@ -286,12 +301,96 @@ def ensure_judge(cfg: Config, name: str) -> tuple[dict | None, str]:
     return None, f"{resp.status_code}: {resp.text[:400]}"
 
 
+#: The trace this kit writes. The seeded pool and a live playground turn both name their
+#: trace — and therefore its root observation — ``copilot-turn`` (``seed.traces`` /
+#: ``live.trace``). Stated here rather than imported so this module stays free of the
+#: emitters; the golden gate would catch a rename in either of them.
+COPILOT_TRACE_NAME = "copilot-turn"
+
+#: The live rule's selector under v4. It has to pick out **one** observation per trace: an
+#: observation evaluator scores every observation it matches, and the root is the only one
+#: carrying the analyst's question and the copilot's answer together. Both writers put them
+#: there — ``seed.events.trace_event`` mints the root span with the overall input and
+#: output, and ``live.emit`` opens the trace as that same root — which is what makes the
+#: consolidation v4 demands already true here. ``isRootObservation`` matches logical
+#: application roots; ``traceName`` keeps the rule off other traffic sharing the project.
+#:
+#: What this replaces was ``type any of [GENERATION]``, which under v4 matched the planning
+#: generation *and* the answer generation of every turn: two scores per trace, one of them
+#: grading the planner's tool-call JSON.
+#: Filter *types* are per column and the API rejects a mismatch with
+#: ``400 invalid_filter_value``, so these are taken from the unstable API's own
+#: supported-columns table for ``target=observation`` and not from the migration guide's
+#: prose: ``traceName`` is ``stringOptions`` (``any of`` / ``none of``, never a bare ``=``),
+#: ``isRootObservation`` is ``boolean`` (``=`` / ``<>``).
+ROOT_OBSERVATION_FILTER = [
+    {"type": "stringOptions", "column": "traceName", "operator": "any of",
+     "value": [COPILOT_TRACE_NAME]},
+    {"type": "boolean", "column": "isRootObservation", "operator": "=", "value": True},
+]
+
+
+def rule_name(judge_name: str, target: str) -> str:
+    """This kit's deployment name for a rule.
+
+    The live rule is ``-observations``, deliberately not the pre-v4 ``-traces``: the old
+    row is a *separate* rule that gets retired rather than overwritten, so rolling back is
+    switching one rule off and another on (see :mod:`synth.workbench.cutover`)."""
+    suffix = "experiments" if target == "experiment" else "observations"
+    return f"wb-{judge_name}-{suffix}"
+
+
+def _probe_list(base: str, path: str) -> tuple[list[dict], bool, str]:
+    """Read one unstable collection. Returns ``(rows, api_available, error)``.
+
+    **Only a 404 means the capability is absent.** Everything here degrades on that answer
+    — the workbench falls back to UI instructions, the seed skips provisioning — so reading
+    every failure as "no API here" makes the kit tell the operator the host is old when it
+    is merely busy. Langfuse Cloud rate-limits these reads, and a `429` seen in the wild
+    was reported as "unstable evaluator API not available on this server". A transient
+    failure keeps ``api_available=True`` and returns its reason instead, so a caller can
+    say "could not read" rather than "not there" — and, crucially, so nothing concludes
+    from an empty list that there is nothing in the project."""
+    try:
+        return probe_json(base, path).get("data", []), True, ""
+    except requests.HTTPError as exc:
+        status = getattr(exc.response, "status_code", None)
+        if status == 404:
+            return [], False, ""             # the capability answer: this host has no API
+        return [], True, f"HTTP {status} reading {path} (transient — not a missing API)"
+    except requests.RequestException as exc:  # timeout, reset, DNS: transient by nature
+        return [], True, f"{type(exc).__name__} reading {path} (transient)"
+
+
+def list_rules(base: str) -> tuple[list[dict], bool, str]:
+    """Returns ``(evaluation rules, api_available, error)`` — the rule half of the surface;
+    see :func:`_probe_list` for why the third element exists."""
+    return _probe_list(base, "/api/public/unstable/evaluation-rules")
+
+
+def patch_rule(cfg: Config, rule_id: str, **fields) -> tuple[bool, str]:
+    """Update one evaluation rule in place. This is how a rule is turned off: the cutover
+    **disables** its predecessor rather than deleting it, so the previous configuration
+    stays in the project and rolling back is one more PATCH."""
+    base = cfg.target.base_url
+    resp, err = _request(
+        "PATCH", f"{base.rstrip('/')}/api/public/unstable/evaluation-rules/{rule_id}",
+        json=fields, auth=_auth())
+    if resp is None:
+        return False, err
+    if resp.status_code in (200, 201, 204):
+        return True, ""
+    return False, f"{resp.status_code}: {resp.text[:300]}"
+
+
 def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str], *,
                 target: str = "experiment", sampling: float = 1.0,
                 enabled: bool = True) -> tuple[dict | None, str]:
     """Create an evaluation rule scoping ``judge`` to either certification
     ``experiment`` runs (filtered by ``datasetId``) or live ``observation`` traffic
-    (filtered to copilot generations) — the SAME evaluator, two surfaces.
+    (filtered to the copilot turn's root observation) — the SAME evaluator, two surfaces.
+    Those two are v4's whole target vocabulary: ``trace`` and ``dataset`` are the legacy
+    targets the unstable API still *returns* but no longer accepts.
 
     Body shape verified against the OpenAPI spec / live Cloud API:
     - ``evaluator`` must carry ``{name, scope, type}`` — ``type`` is ``code`` or
@@ -299,29 +398,32 @@ def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str], *,
     - **code** evaluators take NO ``mapping`` — they read ``ctx`` directly and the
       server auto-fills the variable mapping. They are also **experiment-only**: they
       compare against ``expected_output``, which the API only allows for
-      ``target=experiment``; callers must not point them at ``observation``;
+      ``target=experiment``. That is not a hole in the migration — ``experiment`` *is*
+      the v4 successor of the legacy ``dataset`` target — but callers must not point a
+      code evaluator at ``observation``, where the expected output it grades against
+      does not exist;
     - **llm_as_judge** evaluators need a ``mapping`` whose ``source`` is a bare enum
-      value. For ``experiment``: {input, output, metadata, expected_output,
-      experiment_item_metadata}; for ``observation``: {input, output, metadata}. Our
-      two judges use only ``{{input}}``/``{{output}}`` — valid on both targets.
+      value. For ``experiment``: {input, output, metadata, tool_calls, expected_output,
+      experiment_item_metadata}; for ``observation``: {input, output, metadata,
+      tool_calls}. Our two judges use only ``{{input}}``/``{{output}}``, and under v4
+      both have to resolve on the target observation *itself* — an observation
+      evaluator cannot read siblings or children.
 
     ``sampling`` is the fraction of matching objects to evaluate (1.0 for experiments;
-    a low rate for live traces). ``enabled=False`` creates the rule deactivated (no
-    preflight, zero triggers) — used for trace monitoring that ships paused.
+    a low rate for live traffic). ``enabled=False`` creates the rule deactivated (no
+    preflight, zero triggers) — which is how every observation successor ships.
 
     Server-side validation errors are surfaced verbatim (the unstable API returns
-    structured recovery guidance)."""
+    structured recovery guidance, including ``details.allowedValues`` for a filter
+    column it rejects)."""
     base = cfg.target.base_url
     etype = judge.get("type") or "llm_as_judge"
+    name = rule_name(judge.get("name"), target)
     if target == "experiment":
-        name = f"wb-{judge.get('name')}-experiments"
         rule_filter = [{"column": "datasetId", "operator": "any of",
                         "value": dataset_ids, "type": "stringOptions"}]
     else:
-        # Live monitoring: judge the copilot's answer generations as they ingest.
-        name = f"wb-{judge.get('name')}-traces"
-        rule_filter = [{"column": "type", "operator": "any of",
-                        "value": ["GENERATION"], "type": "stringOptions"}]
+        rule_filter = [dict(f) for f in ROOT_OBSERVATION_FILTER]
     body = {
         "name": name,
         "target": target,
@@ -353,5 +455,19 @@ def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str], *,
     if resp.status_code in (200, 201):
         return resp.json(), ""
     if resp.status_code == 409:
-        return {"name": name}, ""  # already exists — fine
+        # The rule already exists. "Fine" is not good enough here: a project seeded by an
+        # earlier version of this kit carries that version's filter, and leaving it is
+        # exactly the silent-drift the v4 migration exists to end. The API's own recovery
+        # guidance for a 409 is to PATCH the existing resource, so re-run the configuration
+        # onto it. `enabled` is deliberately NOT sent — a rule an operator has already
+        # validated and switched on must not be quietly switched off by a re-seed.
+        existing, available, _err = list_rules(base)
+        match = next((r for r in existing if r.get("name") == name), None)
+        if not available or match is None:
+            return {"name": name}, ""     # can't read it back; the rule is there, leave it
+        fields = {k: body[k] for k in ("target", "sampling", "filter") if k in body}
+        if "mapping" in body:
+            fields["mapping"] = body["mapping"]
+        ok, perr = patch_rule(cfg, match["id"], **fields)
+        return (match, "") if ok else (match, f"exists; update failed — {perr}")
     return None, f"{resp.status_code}: {resp.text[:400]}"

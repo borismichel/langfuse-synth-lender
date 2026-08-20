@@ -37,9 +37,9 @@ pytest -q                                           # determinism + truth table 
 | Flagged trace A | `DEMO_SCRIPT.md` cast sheet → trace link | agent graph; `(2,431)` in `extract_table` output; thumbs-down with comment; prompt-linked `answer` |
 | Filter beat | Traces, filter score `analyst_feedback = down` | exactly the flagged traces from the cast sheet (last week) |
 | Suite slices | Datasets → cert-figure-extraction → items | `metadata.slice` populated; curated items link to source traces |
-| Baseline run | cert-figure-extraction → Runs | `baseline-<incumbent>` dated last week; red `figure_accuracy` cells with reasons |
-| Parachute | Runs | `cert-2026-Q1-<failed>` markedly red across suites |
-| Queues | Annotation queues | `ground-truth-intake` + `certification-signoff` with completed history |
+| Baseline run | cert-figure-extraction → Experiments | `baseline-<incumbent>` dated last week; red `figure_accuracy` cells with reasons |
+| Parachute | Datasets → Experiments | `cert-2026-Q1-<failed>` markedly red across suites |
+| Queues | Human Annotation | `ground-truth-intake` + `certification-signoff` with completed history |
 | Prompt pin | Prompts → filing_copilot | one version, label `production` |
 
 ## 3 · Live-path rehearsal (needs ANTHROPIC_API_KEY)

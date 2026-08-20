@@ -58,8 +58,8 @@ lives in that runbook's developer-mode section — it is not a presenter beat.)
 
 ## Known cosmetics (say it before they ask)
 
-- Seeded scores show source `API` rather than `ANNOTATION`/`EVAL` — batch-ingested
-  history; the live run's evaluator and judge scores carry their real sources.
+- Seeded scores show source `API` rather than `ANNOTATION`/`EVAL` — that is what a written
+  history looks like; the live run's evaluator and judge scores carry their real sources.
 - Queue *items* show their seed-time creation date (the API has no backdate for queue
   items); the underlying traces and reviewer scores are correctly backdated.
 - Agent-graph observation types (AGENT/TOOL/RETRIEVER) render as spans with the type

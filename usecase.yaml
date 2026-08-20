@@ -153,5 +153,6 @@ teardown:
   note: |
     Langfuse ingestion is append-only; teardown is project-level. Delete the Langfuse
     project (or create a fresh one) and re-deploy. The portal only marks the deployment
-    torn down and stops any live instances. Re-seeding the same project is safe (deterministic
-    upsert), but changing coverage requires a fresh project.
+    torn down and stops any live instances. Re-seeding the SAME project is not safe: OTLP
+    appends rather than upserting, so the demo would be told twice. Import-spool refuses a
+    second run rather than doubling the volume.

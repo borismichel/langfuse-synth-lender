@@ -125,7 +125,7 @@ def test_an_existing_rule_is_updated_onto_the_v4_configuration(cfg, monkeypatch)
     monkeypatch.setattr(judges, "_request", _request)
     monkeypatch.setattr(judges, "list_rules", lambda base: (
         [{"id": "r-old", "name": "wb-groundedness-observations", "target": "observation",
-          "enabled": True}], True))
+          "enabled": True}], True, ""))
 
     judge = {"name": "groundedness", "type": "llm_as_judge", "variables": ["input", "output"]}
     rule, err = judges.ensure_rule(cfg, judge, [], target="observation", enabled=False)
@@ -163,7 +163,7 @@ _RULES = [
 
 @pytest.fixture()
 def inventoried(monkeypatch):
-    monkeypatch.setattr(cutover, "list_rules", lambda base: (list(_RULES), True))
+    monkeypatch.setattr(cutover, "list_rules", lambda base: (list(_RULES), True, ""))
 
 
 def test_inventory_separates_successors_from_their_legacy_predecessors(cfg, inventoried):
@@ -194,7 +194,7 @@ def test_a_predecessor_is_not_retired_without_its_successor(cfg, monkeypatch, ap
     must not let a retirement outlive the creation it was paired with: a rejected filter
     would otherwise leave the old rule off and no new one on, and judging stops silently."""
     no_successor = [r for r in _RULES if r["id"] != "r2"]
-    monkeypatch.setattr(cutover, "list_rules", lambda base: (no_successor, True))
+    monkeypatch.setattr(cutover, "list_rules", lambda base: (no_successor, True, ""))
     retired, notes = cutover.retire_legacy(cfg)
 
     # r4 is on a retired target — dead at the v4 cutover whatever we do — so it still goes.
@@ -205,7 +205,7 @@ def test_a_predecessor_is_not_retired_without_its_successor(cfg, monkeypatch, ap
 
 
 def test_retire_is_a_no_op_without_the_unstable_api(cfg, monkeypatch, api):
-    monkeypatch.setattr(cutover, "list_rules", lambda base: ([], False))
+    monkeypatch.setattr(cutover, "list_rules", lambda base: ([], False, ""))
     retired, notes = cutover.retire_legacy(cfg)
     assert retired == [] and notes and not api
 
@@ -308,7 +308,7 @@ def _populate(cfg, monkeypatch, *, judges_available=True, judge_error="", retire
     best-effort by design, so its lines are behaviour."""
     from synth.seed import run as seed_run
 
-    monkeypatch.setattr(judges, "list_judges", lambda base: ([], judges_available))
+    monkeypatch.setattr(judges, "list_judges", lambda base: ([], judges_available, ""))
     monkeypatch.setattr(judges, "ensure_code_evaluator",
                         lambda cfg, name, source: ({"name": name, "type": "code"}, ""))
     monkeypatch.setattr(judges, "ensure_llm_connection", lambda cfg: (True, "upserted"))
@@ -342,3 +342,54 @@ def test_the_seed_says_so_when_no_judge_could_be_created(cfg, monkeypatch):
     joined = "\n".join(lines)
     assert "LLM judges: not created" in joined and "no LLM connection" in joined
     assert "LLM judges: 2/2 created" not in joined
+
+
+# ---------------------------------------------------------------------------
+# "Not here" and "not answering right now" are different answers
+# ---------------------------------------------------------------------------
+def _raise(status):
+    """A ``probe_json`` that fails the way a real host does."""
+    def _probe(base, path, params=None):
+        resp = _Resp(status)
+        raise judges.requests.HTTPError(f"{status} error", response=resp)
+    return _probe
+
+
+def test_a_404_is_the_capability_answer(monkeypatch):
+    """Older self-hosted has no unstable evaluator API. That, and only that, is 'absent'."""
+    monkeypatch.setattr(judges, "probe_json", _raise(404))
+    rows, available, err = judges.list_rules("http://x")
+    assert (rows, available, err) == ([], False, "")
+
+
+def test_a_rate_limit_is_not_a_missing_api(monkeypatch):
+    """Seen in the wild: Langfuse Cloud answers these reads with 429, and reading that as
+    'no API here' told the operator to fix a server that was merely busy — while the
+    retirement below it concluded there was nothing in the project to retire."""
+    monkeypatch.setattr(judges, "probe_json", _raise(429))
+    rows, available, err = judges.list_rules("http://x")
+    assert rows == [] and available is True
+    assert "429" in err and "transient" in err
+
+
+def test_nothing_is_retired_on_an_unreadable_project(cfg, monkeypatch, api):
+    monkeypatch.setattr(cutover, "list_rules",
+                        lambda base: ([], True, "HTTP 429 reading /rules (transient)"))
+    retired, notes = cutover.retire_legacy(cfg)
+    assert retired == [] and not api
+    assert any("could not read" in n and "429" in n for n in notes)
+
+
+def test_the_seed_says_busy_rather_than_absent(cfg, monkeypatch):
+    """The operator-facing line for a transient failure must not send anyone to upgrade a
+    server, and must say that nothing was retired either."""
+    from synth.seed import run as seed_run
+
+    monkeypatch.setattr(judges, "list_judges",
+                        lambda base: ([], True, "HTTP 429 reading /evaluators (transient)"))
+    lines: list[str] = []
+    seed_run._populate_managed_evaluators(cfg, log=lines.append)
+    joined = "\n".join(lines)
+    assert "could not read the evaluator API" in joined and "429" in joined
+    assert "nothing provisioned or retired" in joined
+    assert "older self-hosted" not in joined

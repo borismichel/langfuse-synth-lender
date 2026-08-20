@@ -162,7 +162,9 @@ def ensure_code_evaluator(cfg: Config, name: str, source: str) -> tuple[dict | N
     existing evaluation rules to it. So re-running ``synth evaluators`` ships code fixes;
     identical source is a no-op (no version churn)."""
     base = cfg.target.base_url
-    existing, available = list_judges(base)
+    existing, available, err = list_judges(base)
+    if err:
+        return None, err
     if not available:
         return None, "unstable evaluator API not available"
     desired = source.strip() + "\n"
@@ -229,16 +231,13 @@ def ensure_llm_connection(cfg: Config) -> tuple[bool, str]:
     return False, f"{resp.status_code}: {resp.text[:200]}"
 
 
-def list_judges(base: str) -> tuple[list[dict], bool]:
-    """Returns (evaluators, api_available).
+def list_judges(base: str) -> tuple[list[dict], bool, str]:
+    """Returns ``(evaluators, api_available, error)``.
 
     A 404 is the capability answer — older self-hosted has no unstable evaluator API and the
-    workbench degrades to logged UI instructions — and so is any transport failure, which is
-    why every exception lands in the same place rather than propagating."""
-    try:
-        return probe_json(base, "/api/public/unstable/evaluators").get("data", []), True
-    except requests.RequestException:   # 404, timeout, reset: all mean "no API here"
-        return [], False
+    workbench degrades to logged UI instructions. Nothing else is: see :func:`_probe_list`
+    for why a busy host must not be reported as an old one."""
+    return _probe_list(base, "/api/public/unstable/evaluators")
 
 
 def _judge_provider(base: str, provider: str) -> str:
@@ -274,7 +273,9 @@ def ensure_judge(cfg: Config, name: str) -> tuple[dict | None, str]:
     tpl = JUDGE_TEMPLATES.get(name)
     if tpl is None:
         return None, f"unknown judge template {name!r}"
-    existing, available = list_judges(base)
+    existing, available, err = list_judges(base)
+    if err:
+        return None, err
     if not available:
         return None, ("unstable evaluator API not available on this server — create the "
                       "judge in the UI (prompt + mappings are in DEMO_SCRIPT.md beat 4)")
@@ -339,13 +340,32 @@ def rule_name(judge_name: str, target: str) -> str:
     return f"wb-{judge_name}-{suffix}"
 
 
-def list_rules(base: str) -> tuple[list[dict], bool]:
-    """Returns ``(evaluation rules, api_available)`` — same capability answer as
-    :func:`list_judges`, for the rule half of the surface."""
+def _probe_list(base: str, path: str) -> tuple[list[dict], bool, str]:
+    """Read one unstable collection. Returns ``(rows, api_available, error)``.
+
+    **Only a 404 means the capability is absent.** Everything here degrades on that answer
+    — the workbench falls back to UI instructions, the seed skips provisioning — so reading
+    every failure as "no API here" makes the kit tell the operator the host is old when it
+    is merely busy. Langfuse Cloud rate-limits these reads, and a `429` seen in the wild
+    was reported as "unstable evaluator API not available on this server". A transient
+    failure keeps ``api_available=True`` and returns its reason instead, so a caller can
+    say "could not read" rather than "not there" — and, crucially, so nothing concludes
+    from an empty list that there is nothing in the project."""
     try:
-        return probe_json(base, "/api/public/unstable/evaluation-rules").get("data", []), True
-    except requests.RequestException:   # 404, timeout, reset: all mean "no API here"
-        return [], False
+        return probe_json(base, path).get("data", []), True, ""
+    except requests.HTTPError as exc:
+        status = getattr(exc.response, "status_code", None)
+        if status == 404:
+            return [], False, ""             # the capability answer: this host has no API
+        return [], True, f"HTTP {status} reading {path} (transient — not a missing API)"
+    except requests.RequestException as exc:  # timeout, reset, DNS: transient by nature
+        return [], True, f"{type(exc).__name__} reading {path} (transient)"
+
+
+def list_rules(base: str) -> tuple[list[dict], bool, str]:
+    """Returns ``(evaluation rules, api_available, error)`` — the rule half of the surface;
+    see :func:`_probe_list` for why the third element exists."""
+    return _probe_list(base, "/api/public/unstable/evaluation-rules")
 
 
 def patch_rule(cfg: Config, rule_id: str, **fields) -> tuple[bool, str]:
@@ -441,7 +461,7 @@ def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str], *,
         # guidance for a 409 is to PATCH the existing resource, so re-run the configuration
         # onto it. `enabled` is deliberately NOT sent — a rule an operator has already
         # validated and switched on must not be quietly switched off by a re-seed.
-        existing, available = list_rules(base)
+        existing, available, _err = list_rules(base)
         match = next((r for r in existing if r.get("name") == name), None)
         if not available or match is None:
             return {"name": name}, ""     # can't read it back; the rule is there, leave it

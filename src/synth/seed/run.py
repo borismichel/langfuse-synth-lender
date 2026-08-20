@@ -236,9 +236,17 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
 
     base = cfg.target.base_url
     profile = TargetProfile.detect(base)
-    _, available = list_judges(base)
+    _, available, probe_err = list_judges(base)
     log(f"· evaluators: target = {profile.label}; unstable evaluator API "
         f"{'present → creating programmatically' if available else 'absent'}")
+    if probe_err:
+        # Not the capability answer: the host is there and busy or unwell. Saying "absent"
+        # here would send an operator to fix an old server that is not old (Cloud's 429 on
+        # these reads is the case seen in the wild), and would let the retirement below
+        # conclude there is nothing to retire.
+        log(f"· evaluators: could not read the evaluator API ({probe_err}) — nothing "
+            "provisioned or retired; re-run `synth evaluators` when the host answers")
+        return
     if not available:
         log("· evaluators: unstable evaluator API not present (older self-hosted) "
             "— create evaluators in the UI per DEMO_SCRIPT (skipped)")

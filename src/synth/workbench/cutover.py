@@ -77,6 +77,10 @@ class Inventory:
     """What the project currently holds, split by what the migration must do with it."""
 
     api_available: bool = True
+    #: Set when the project's rules could not be read at all. An empty inventory then
+    #: means "unknown", never "nothing there" — so nothing may be retired on the strength
+    #: of it.
+    error: str = ""
     #: Rules already on a v4 target and named by this kit's current scheme.
     successors: list[dict] = field(default_factory=list)
     #: Rules to retire: a legacy target, or this kit's pre-v4 live rule.
@@ -100,9 +104,9 @@ def inventory(cfg: Config) -> Inventory:
     Anything else — a rule on a v4 target that this kit did not create — is left out of
     both lists on purpose: switching off someone else's evaluation is not this migration's
     business."""
-    rules, available = list_rules(cfg.target.base_url)
-    inv = Inventory(api_available=available)
-    if not available:
+    rules, available, err = list_rules(cfg.target.base_url)
+    inv = Inventory(api_available=available, error=err)
+    if not available or err:
         return inv
     for rule in rules:
         if rule.get("target") in RETIRED_TARGETS:
@@ -131,6 +135,9 @@ def retire_legacy(cfg: Config, inv: Inventory | None = None) -> tuple[list[str],
     **retired target** is exempt from that check — it stops producing results at the v4
     cutover whatever we do, so leaving it enabled buys nothing."""
     inv = inv or inventory(cfg)
+    if inv.error:
+        return [], [f"could not read this project's evaluation rules ({inv.error}) — "
+                    "nothing retired; re-run `synth evaluators` once the host answers"]
     if not inv.api_available:
         return [], ["unstable evaluator API not available — retire the legacy rule in the UI"]
     retired, notes = [], []
@@ -245,6 +252,9 @@ def enable_successors(cfg: Config, *, sampling: float, tolerance: float = 0.05,
     disabled and the reason is returned — this function never enables on a judgement call
     the operator has not seen."""
     inv = inv or inventory(cfg)
+    if inv.error:
+        return [], [f"could not read this project's evaluation rules ({inv.error}) — "
+                    "nothing enabled"]
     if not inv.api_available:
         return [], ["unstable evaluator API not available — enable the rule in the UI"]
     enabled, notes = [], []

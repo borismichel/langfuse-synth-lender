@@ -121,9 +121,13 @@ def _tool(events: list, r: Rng, cur: _Cursor, *, obs_id: str, trace_id: str, nam
         parent_id=parent_id, environment=env, input=inp, output=None,
         level="ERROR", status_message=fail_msg, metadata={**meta, "attempt": 1}))
     s2, e2 = cur.advance(tool_latency_ms(r, median_ms * 1.15, 0.45, slow))
+    # The retry id is derived through the same minting seam as every other id (a pure
+    # digest — it never perturbs the RNG stream) rather than suffixed: the OTLP wire
+    # refuses the old non-hex "…ret1" spelling (portal #210). `retry_of` in metadata
+    # keeps the attempt linkage readable.
     events.append(observation_event(
-        obs_id=obs_id
-        [:12] + "ret1", trace_id=trace_id, name=name, obs_type=obs_type, start=s2, end=e2,
+        obs_id=r.obs_id("retry", obs_id), trace_id=trace_id, name=name, obs_type=obs_type,
+        start=s2, end=e2,
         parent_id=parent_id, environment=env, input=inp, output=out,
         metadata={**meta, "attempt": 2, "retry_of": obs_id}))
 

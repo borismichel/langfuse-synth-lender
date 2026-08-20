@@ -2,7 +2,7 @@
 
     synth plan          --config demo.yaml   # dry-run: volumes, suites, seeded-run summary
     synth seed          --config demo.yaml   # generate + ingest backdated; prompt; suites; runs; queues
-    synth import-spool                       # resume an interrupted upload
+    synth import-spool                       # one-shot upload of a written spool (OTLP: non-resumable)
     synth count-spool                        # print the measured billable set of the spool (JSON)
     synth verify        --config demo.yaml   # query back via the API, assert the golden path
     synth certify       --config demo.yaml --model <id>   # the button (live model calls)
@@ -56,7 +56,7 @@ def seed(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
          dry_run: bool = typer.Option(False, "--dry-run", help="Build everything but send nothing."),
          spool: str = typer.Option(None, "--spool", help="NDJSON spool path (default .synth_spool/events.ndjson)."),
          no_import: bool = typer.Option(False, "--no-import",
-                                        help="Write the spool to disk but skip the upload (resume with `synth import-spool`)."),
+                                        help="Write the spool to disk but skip the upload (run `synth import-spool` once — OTLP import is non-resumable)."),
          set_overrides: SetOverrides = None):
     """Generate the deterministic caseload + certification record, spool to disk, batch-import
     backdated, register the pinned prompt, create the suites + seeded runs + annotation

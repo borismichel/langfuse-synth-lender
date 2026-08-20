@@ -12,10 +12,10 @@ import time
 from datetime import timedelta
 from typing import Callable
 
-import requests
+from langfuse_synth_core.seed.ingest import Ingestor, assert_demo_project
 
 from .config import Config
-from langfuse_synth_core.seed.ingest import Ingestor, assert_demo_project
+from .target import TargetProfile
 from .timegen import now_utc
 
 
@@ -44,25 +44,29 @@ def run_probe(cfg: Config, log: Callable[[str], None] = print) -> bool:
     ing.flush()
     log(f"· probe trace {spec.trace_id[:16]}… ingested with timestamp {backdate.isoformat()}")
 
-    # poll the read API (ingestion is async; allow it a moment)
-    pub_auth = ing.public_key, ing.secret_key
+    # Poll the read API (ingestion is async; allow it a moment). Through the read seam, so
+    # the probe asks the question the same way on either API generation — under v4 there is
+    # no trace row to GET, and "when did this land?" is answered by the root observation's
+    # start time (portal #211).
+    profile = TargetProfile.detect(base).resolved()
+    log(f"· reading back through {profile.label}")
+    reader = profile.reader()
     got = None
     for attempt in range(10):
         time.sleep(2 + attempt)
-        resp = requests.get(f"{base}/api/public/traces/{spec.trace_id}",
-                            auth=pub_auth, timeout=20)
-        if resp.status_code == 200:
-            got = resp.json()
+        got = reader.trace(spec.trace_id, with_scores=False)
+        if got is not None:
             break
     if got is None:
         log("✗ PROBE FAILED: trace not retrievable after ~60s — check keys/host/ingestion.")
         return False
 
-    stored = (got.get("timestamp") or "").replace("Z", "+00:00")
+    landed = got.timestamp or (got.root.start_time if got.root else None)
+    stored = landed.isoformat() if landed else ""
     want_date = backdate.strftime("%Y-%m-%dT%H:%M")
     ok = stored.startswith(want_date)
     if ok:
-        n_obs = len(got.get("observations") or [])
+        n_obs = len(got.observations)
         log(f"✓ PROBE PASSED: stored timestamp {stored} matches the backdate; "
             f"{n_obs} observations attached. Backdated bulk seeding is safe on this host.")
     else:

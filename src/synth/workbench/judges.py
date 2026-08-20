@@ -14,6 +14,8 @@ import os
 
 import requests
 
+from langfuse_synth_core.lfread import get_json
+
 from ..config import Config
 from langfuse_synth_core.companion.llm import API_KEY_ENV, resolve_model, resolve_provider
 from ..script import _CITATION_JUDGE, _GROUNDEDNESS_JUDGE
@@ -41,7 +43,12 @@ def _auth():
 
 
 def _request(method: str, url: str, **kw) -> tuple[requests.Response | None, str]:
-    """Best-effort HTTP for the unstable / newer-only surfaces. These endpoints are a
+    """Best-effort HTTP for the unstable / newer-only surfaces.
+
+    ``requests`` stays here for the **writes** — creating an evaluator, a rule, an LLM
+    connection. Those are POSTs and PUTs against the unstable API, which core models on
+    neither seam, so there is nothing to route them through. Every *read* in this module
+    goes through ``lfread.get_json`` instead (portal #211). These endpoints are a
     **self-hosted gap**: on older self-hosted (v3) they may 404, or the host may time
     out / reset the connection. Every caller degrades gracefully, so a transport-level
     failure must return ``(None, msg)`` rather than raise — a missing capability can
@@ -150,10 +157,12 @@ def ensure_code_evaluator(cfg: Config, name: str, source: str) -> tuple[dict | N
     if match:
         current = match.get("sourceCode") or ""
         if not current:  # the list endpoint omits sourceCode — fetch the detail
-            det, _e = _request("GET", f"{base.rstrip('/')}/api/public/unstable/evaluators/{match.get('id')}",
-                               auth=_auth())
-            if det is not None and det.status_code == 200:
-                current = det.json().get("sourceCode") or ""
+            try:
+                det = get_json(base, f"/api/public/unstable/evaluators/{match.get('id')}",
+                               attempts=1)
+                current = det.get("sourceCode") or ""
+            except Exception:  # noqa: BLE001 — unreadable detail: treat as changed, POST
+                current = ""
         if current.strip() == desired.strip():
             return match, ""  # unchanged — no new version
         # else fall through to POST a new version (existing rules auto-migrate to it)
@@ -208,15 +217,17 @@ def ensure_llm_connection(cfg: Config) -> tuple[bool, str]:
 
 
 def list_judges(base: str) -> tuple[list[dict], bool]:
-    """Returns (evaluators, api_available)."""
+    """Returns (evaluators, api_available).
+
+    A 404 is the capability answer — older self-hosted has no unstable evaluator API and the
+    workbench degrades to logged UI instructions — and so is any transport failure, which is
+    why every exception lands in the same place rather than propagating."""
     try:
-        resp = requests.get(f"{base.rstrip('/')}/api/public/unstable/evaluators",
-                            auth=_auth(), timeout=12)
-        if resp.status_code == 404:
-            return [], False
-        resp.raise_for_status()
-        return resp.json().get("data", []), True
-    except requests.RequestException:
+        # One shot: a host without the API answers 404 and one that is unreachable should
+        # fail fast, because the caller degrades either way (portal #211).
+        return get_json(base, "/api/public/unstable/evaluators",
+                        attempts=1).get("data", []), True
+    except Exception:  # noqa: BLE001 — 404, timeout, reset: all mean "no API here"
         return [], False
 
 
@@ -227,9 +238,9 @@ def _judge_provider(base: str, provider: str) -> str:
     list and return the provider whose adapter matches ``provider`` (fallback: the
     provider id capitalised, e.g. ``"Anthropic"`` / ``"Openai"``)."""
     try:
-        conns = requests.get(f"{base.rstrip('/')}/api/public/llm-connections",
-                             params={"limit": 50}, auth=_auth(), timeout=12).json().get("data", [])
-    except requests.RequestException:
+        conns = get_json(base, "/api/public/llm-connections", {"limit": 50},
+                         attempts=1).get("data", [])
+    except Exception:  # noqa: BLE001 — no connections API here; fall back to capitalising
         conns = []
     for c in conns:
         if c.get("adapter") == provider and c.get("provider"):

@@ -55,9 +55,8 @@ def _record_in_langfuse(cfg: Config, run: WorkbenchRun,
         return "no run trace available"
     try:
         from langfuse_synth_core.rng import Rng
-        from ..clients import ingestor as get_ingestor
+        from ..clients import emitter as get_emitter
         from ..seed.annotation import add_queue_item, ensure_queue, score_config_ids
-        from langfuse_synth_core.seed.events import score_event
         from ..seed.scores import REVIEW_QUEUE_CONFIGS
 
         base = cfg.target.base_url
@@ -66,17 +65,17 @@ def _record_in_langfuse(cfg: Config, run: WorkbenchRun,
                            score_config_ids(base, REVIEW_QUEUE_CONFIGS))
         add_queue_item(base, qid, sample["trace_id"], "COMPLETED")
         s = Rng(cfg.generation.seed).sub("wbsignoff", run.run_id)
-        ev = score_event(
-            score_id=s.score_id("signoff", sample["trace_id"]), name="groundedness",
-            value=1.0, data_type="NUMERIC",
-            timestamp=datetime.now(timezone.utc), trace_id=sample["trace_id"],
-            environment="default",
+        # A sign-off happens at *now*, so the score rides the live-emission seam rather than
+        # the Spool's ingestor — same subject, same idempotent score id, no backdating path
+        # (portal #211).
+        emitter = get_emitter(cfg, adapter=adapter, environment="default")
+        emitter.score(
+            "groundedness", 1.0, score_id=s.score_id("signoff", sample["trace_id"]),
+            data_type="NUMERIC", trace_id=sample["trace_id"],
             comment=(f"human annotation (certification-review) — sign-off by "
                      f"{run.signoff.get('by')} on {run.spec_ref} "
                      f"(spec {run.spec_hash[:12]}…). {run.signoff.get('note', '')}".strip()))
-        ing = get_ingestor(cfg, adapter=adapter)
-        ing.add(ev)
-        ing.flush()
+        emitter.flush()
         return ""
     except Exception as exc:  # noqa: BLE001
         return f"{type(exc).__name__}: {exc}"

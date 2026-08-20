@@ -8,24 +8,26 @@ the catalog falls back to what ``.synth_state.json`` and the deterministic plan 
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 
-import requests
+from langfuse_synth_core.lfread import get_json
 
 from ..config import Config
 from ..state import RunState
 
+# Every endpoint below — prompts, datasets, dataset items, score configs, the unstable
+# evaluator surface — survived the v4 migration untouched, so the read seam does not model
+# them and `lfread.get_json` is the right primitive: it carries the shared auth and the
+# Retry-After-aware backoff, which this module used to re-implement with a bare
+# `requests.get` and no retry at all (portal #211).
+#
+# One attempt, not eight: the whole module is built to degrade to `offline_catalog` when the
+# instance is unreachable, and it renders inside a live workbench request. Backing off for
+# minutes before falling back would make the resilience worse, not better.
 
-def _auth():
-    return (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
 
-
-def _get(base: str, path: str, params: dict | None = None, timeout: int = 12) -> dict:
-    resp = requests.get(f"{base.rstrip('/')}{path}", params=params or {}, auth=_auth(),
-                        timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+def _get(base: str, path: str, params: dict | None = None) -> dict:
+    return get_json(base, path, params, attempts=1)
 
 
 def _paged(base: str, path: str, params: dict | None = None, max_pages: int = 10) -> list[dict]:

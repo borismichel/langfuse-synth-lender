@@ -218,9 +218,7 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
       (ANTHROPIC_API_KEY upserts one), else logged and skipped.
     Best-effort: the unstable evaluator API is Cloud / newer-self-hosted only; anything
     missing is logged, never fatal."""
-    import os
-
-    import requests
+    from langfuse_synth_core.lfread import get_json
 
     from ..workbench.judges import (
         CODE_EVALUATORS,
@@ -243,11 +241,9 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
         log("· evaluators: unstable evaluator API not present (older self-hosted) "
             "— create evaluators in the UI per DEMO_SCRIPT (skipped)")
         return
-    auth = (os.environ.get("LANGFUSE_PUBLIC_KEY", ""), os.environ.get("LANGFUSE_SECRET_KEY", ""))
     ds_ids = []
     try:
-        data = requests.get(f"{base.rstrip('/')}/api/public/v2/datasets",
-                            params={"limit": 100}, auth=auth, timeout=15).json().get("data", [])
+        data = get_json(base, "/api/public/v2/datasets", {"limit": 100}).get("data", [])
         ds_ids = [d["id"] for d in data
                   if d.get("name") == cfg.certification.dataset.name and d.get("id")]
     except Exception:  # noqa: BLE001
@@ -280,8 +276,8 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
     if not conn_ok and "in env" in conn_msg:
         # No key in env, but a connection may already be configured in project settings.
         try:
-            conns = requests.get(f"{base.rstrip('/')}/api/public/llm-connections",
-                                 params={"limit": 50}, auth=auth, timeout=15).json().get("data", [])
+            conns = get_json(base, "/api/public/llm-connections", {"limit": 50},
+                             attempts=1).get("data", [])
         except Exception:  # noqa: BLE001
             conns = []
         if conns:

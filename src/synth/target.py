@@ -1,54 +1,31 @@
-"""Single source of truth for **target-specific behaviour** (Cloud vs self-hosted).
+"""Target-specific behaviour — the shared core's, re-exported under the kit's own name.
 
-The kit is cloned per scenario, and each clone is pointed at a different Langfuse
-(Cloud, or a self-hosted instance) via ``LANGFUSE_BASE_URL``. Two facts about the
-target change what the seeder does — keep both decisions HERE so a clone never grows
-its own scattered ``"cloud.langfuse.com" in url`` checks:
+Two facts about the Langfuse this clone is pointed at change what the kit does: **is it
+Cloud?** (URL-derived — Cloud rate-limits the per-object REST reads and writes, so they are
+spaced out and lean on the Retry-After-aware backoff in ``langfuse_synth_core.http``) and
+**which read API generation does it serve?** (probed — Cloud goes v4-only on 2026-11-16 and
+a self-hosted host cuts over whenever its operator upgrades it, so a host name answers
+nothing).
 
-1. **Is it Langfuse Cloud?** (URL-derived.) Cloud rate-limits the per-object REST
-   writes (dataset-run / annotation-queue items), so we space them out; self-hosted has
-   no such limit. This is purely a function of the host, so it lives on ``TargetProfile``.
+Both used to live here, and a byte-identical copy lived in the EV kit. The verify read-seam
+cutover (portal #211) moved them into :mod:`langfuse_synth_core.target` beside the read seam
+that does the probing — one implementation, so the two kits cannot drift and a third
+inherits it. This module is the kit's name for it; every call site is unchanged.
 
-2. **Does it expose the unstable evaluator API?** (capability-probed, NOT URL-derived —
-   see ``workbench.judges.list_judges``.) Cloud and *newer* self-hosted (≥ the unstable
-   evaluator release) have it; older self-hosted (e.g. v3.179) does not. We probe rather
-   than match the URL because a newer self-hosted host should still take the API path.
-   When absent, evaluator/judge/rule creation degrades to logged UI instructions.
-
-Best practice (and the path this kit is tuned for) is **Langfuse Cloud**; older
-self-hosted (no unstable evaluator API) degrades gracefully to UI instructions.
+The kit's *other* capability question — **does this host expose the unstable evaluator
+API?** — is not here and never was: it is probed at its own call site
+(``workbench.judges.list_judges``) because a newer self-hosted host should take the API path
+whatever its URL says, and when it is absent the workbench degrades to logged UI
+instructions.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from langfuse_synth_core.target import (
+    CLOUD_HOST_MARKER,
+    CLOUD_POST_THROTTLE_S,
+    TargetProfile,
+    post_throttle_seconds,
+)
 
-# Both EU (cloud.langfuse.com) and US (us.cloud.langfuse.com) contain this substring.
-CLOUD_HOST_MARKER = "cloud.langfuse.com"
-
-# Per-request spacing on the one-at-a-time REST writes, Cloud only (it rate-limits them).
-CLOUD_POST_THROTTLE_S = 0.35
-
-
-@dataclass(frozen=True)
-class TargetProfile:
-    """URL-derived target facts. Build once with :meth:`detect` and pass it around."""
-
-    base_url: str
-    is_cloud: bool
-    post_throttle_s: float
-
-    @classmethod
-    def detect(cls, base_url: str) -> "TargetProfile":
-        url = (base_url or "").rstrip("/")
-        is_cloud = CLOUD_HOST_MARKER in url
-        return cls(base_url=url, is_cloud=is_cloud,
-                   post_throttle_s=CLOUD_POST_THROTTLE_S if is_cloud else 0.0)
-
-    @property
-    def label(self) -> str:
-        return "Langfuse Cloud" if self.is_cloud else "self-hosted Langfuse"
-
-
-def post_throttle_seconds(base_url: str) -> float:
-    """Convenience: per-object REST write spacing for this target (0 off-Cloud)."""
-    return TargetProfile.detect(base_url).post_throttle_s
+__all__ = ["CLOUD_HOST_MARKER", "CLOUD_POST_THROTTLE_S", "TargetProfile",
+           "post_throttle_seconds"]

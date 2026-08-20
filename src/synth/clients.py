@@ -12,7 +12,7 @@ one rule for both:
   module and the env, byte-for-byte as before the swap.
 
 Both branches resolve through the same core code (``companion.llm`` for the provider,
-``lfclient``/``seed.ingest`` for Langfuse), so the two paths cannot drift apart. Keeping the
+``lfclient``/``live.emit`` for Langfuse), so the two paths cannot drift apart. Keeping the
 fork here rather than repeating it at each call site means the rule is stated once, and a
 call site reads as "give me a client" rather than as plumbing.
 
@@ -58,10 +58,16 @@ def llm(model: str | None = None, *, adapter: "CompanionAdapter | None" = None) 
     return get_llm(model)
 
 
-def ingestor(cfg: Config, *, adapter: "CompanionAdapter | None" = None, **kw: Any) -> Any:
-    """The backdated-batch write client used to emit live traces and scores."""
-    if adapter is not None:
-        return adapter.ingestor(**kw)
-    from langfuse_synth_core.seed.ingest import Ingestor
+def emitter(cfg: Config, *, adapter: "CompanionAdapter | None" = None, **kw: Any) -> Any:
+    """The **live-emission** client: wall-clock traces and scores for a live turn.
 
-    return Ingestor.from_env(cfg.target.base_url, **kw)
+    A playground turn and a workbench run happen at *now*, so they ride the live-emission
+    seam and never the Spool's ``Ingestor``: that writer exists to backdate weeks of history
+    from producer-supplied timestamps, and a live surface has no timestamp to supply
+    (portal #211, CONTRACT.md — the determinism line).
+    """
+    if adapter is not None:
+        return adapter.emitter(**kw)
+    from langfuse_synth_core.live.emit import LiveEmitter
+
+    return LiveEmitter.from_env(cfg.target.base_url, **kw)

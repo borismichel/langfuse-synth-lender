@@ -34,9 +34,9 @@ jobs:
         run: pip install -e '.[dev,playground]'
       - name: Test (spool-determinism golden + presenter-visible UI goldens + unit suite)
         run: pytest -q
-      # The Contract as executable checks (portal #198). --advisory: this pre-portal
-      # kit still carries known migration debt (health_path `/`, live/ package shape
-      # — CONTRACT.md's migration-debt list), so findings report without blocking
-      # until it has converged on the target shape.
-      - name: Contract conformance (advisory — synth-authoring conformance)
+      # The Contract as executable checks (portal #198). `--advisory` covers this kit's remaining convergence debt (the target companion
+      # shape) and NOTHING else: since portal #213 the v4-migration checks — a deprecated
+      # Langfuse endpoint, an observation type outside the vocabulary — block whether or not
+      # this flag is passed. Drop the flag when the shape debt is paid.
+      - name: Contract conformance (synth-authoring conformance; shape debt advisory)
         run: synth-authoring conformance . --advisory

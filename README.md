@@ -38,7 +38,7 @@ Deploying this kit lands everything it takes to present the demo:
 - **The Spool** — ~10–12k backdated traces in ~1,150 sessions, the 72-item
   `certification-suite`, three seeded experiment runs, the
   `certification-review` annotation queue, five golden traces, and all five
-  score-method types, batch-ingested into your Langfuse project.
+  score-method types, written into your Langfuse project over OTLP.
   Byte-deterministic and model-free; the full inventory is under
   [What the seeded data contains](#what-the-seeded-data-contains-full-preset).
 - **The Presenter Runbook** — `DEMO_SCRIPT.md` (five checklist rows, each two
@@ -190,11 +190,16 @@ copilot, `/dossier`, and the alpha `/workbench`.
 
 ### Architecture notes
 
-Backdated **batch ingestion** (`/api/public/ingestion`, ingestion-version-4 header) —
-the OTel SDK can't backfill; two-phase recoverable seeding (NDJSON spool → chunked
-import; resume with `synth import-spool`); deterministic BLAKE2b ids (re-seeding
-upserts); **seeded experiment runs** via the SDK `run_experiment` path + backdated
-caseload; annotation queue via the public queues API.
+Backdated **raw OTLP** (`/api/public/otel/v1/traces`, `x-langfuse-ingestion-version: 4`)
+— the Langfuse SDK stamps wall clock and can't backfill, and a Spool is weeks of
+backdated history. Every observation is a span and a trace is its minted root; scores
+stay `score-create` envelopes on `/api/public/ingestion`, which is the supported v4 path
+for them. Two-phase seeding (NDJSON spool → chunked import) so a wedged upload can't lose
+the generated data — but the import is **not resumable**: OTLP appends where the old batch
+transport upserted, so a second run over the same spool is refused rather than allowed to
+double the volume (core `docs/WRITE_PATHS.md`). Deterministic BLAKE2b ids; **seeded
+experiment runs** via the SDK `run_experiment` path + backdated caseload; annotation queue
+via the public queues API.
 
 **Evaluators (`synth evaluators`, also seed step 5b).** The kit populates the
 project's Evaluators page programmatically via the unstable evaluator API and scopes
@@ -278,8 +283,10 @@ be backdated (era linkage on generations carries the story); seeded scores show 
 ### Guardrails & teardown
 
 The seeder refuses to run unless the project name contains `target.project_hint`.
-Re-seeding upserts traces/scores; dataset-run-items would duplicate — **teardown is
-project-level** (fresh project + re-seed; deterministic ids regenerate identically).
+**Re-seeding is not a reset**: OTLP appends rather than upserting, so a second seed over the
+same project tells the whole story twice, and `synth import-spool` refuses a second run over
+the same spool. **Teardown is project-level** (fresh project + re-seed; deterministic ids
+regenerate identically).
 
 ### Tests
 

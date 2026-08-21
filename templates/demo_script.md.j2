@@ -136,8 +136,8 @@ and the evidence pack.
 
 ## Reset
 Teardown is project-level and depot-native: **deploy again** against a fresh Langfuse
-project. Re-seeding the same project is safe (deterministic upsert — identical ids);
-changing coverage needs a fresh project.
+project. Do not re-seed the same one — OTLP appends rather than upserting, so the demo
+would be told twice; `import-spool` refuses a second run rather than doubling it.
 
 ---
 

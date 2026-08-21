@@ -1,16 +1,14 @@
 """`verify` reads through the seam, and asserts the same things it always did.
 
-Two acceptance criteria meet here (portal #211):
+This served one canned seeded project **twice** while the seam had two arms — once as a
+deprecated-API Langfuse and once as a v4 one — because #211's acceptance criterion was that
+every assertion survives the remap, and identical reports on both arms was the proof. It did,
+and that equivalence is what let #213 delete the deprecated arm.
 
-  * *"every assertion each verify makes today is still made after the remap"* — so the same
-    canned seeded environment is served **twice**, once as a deprecated-API Langfuse and
-    once as a v4 one, and the report must come out identical. That is a stronger claim than
-    the pre-remap version of this file made: it proved the assertions survived a refactor,
-    and now it proves they survive a change of API generation;
-  * *"Lender's dataset-run reads go through the Experiments API"* — the v4 arm below serves
-    `/api/public/experiments` and `/api/public/experiment-items` and **404s** the
-    `/datasets/{name}/runs` endpoints the deprecated arm answers. A verify still reaching
-    for a dataset run the old way fails there rather than quietly passing.
+The canned server is v4-only now: it serves `/api/public/experiments` and
+`/api/public/experiment-items` and **404s** every deprecated endpoint, including the
+`/datasets/{name}/runs` reads Lender used to make. A `verify` still reaching for one fails
+here rather than quietly passing on a fallback.
 
 The read path is faked at the transport (`read.request_retry`), not at the assertions, so
 normalisation — the v3 score shape, the `subject` object, cursor pagination, v4's
@@ -20,8 +18,8 @@ raw-JSON-string `input` — runs for real.
 from __future__ import annotations
 
 import json
-
-import pytest
+import pathlib
+import re
 
 from langfuse_synth_core import read
 
@@ -88,16 +86,14 @@ def _answer_observation(trace_id: str, *, raw_io: bool):
     return row
 
 
-def _install_seeded_env(monkeypatch, *, generation: str, healthy_queue: bool = True) -> None:
-    """Serve the canned seeded project as `generation` would — and only as it would.
+def _install_seeded_env(monkeypatch, *, healthy_queue: bool = True) -> None:
+    """Serve the canned seeded project as a v4 Langfuse — and only as one.
 
-    Every endpoint the other generation would have used answers a 404, so a read that
-    silently stayed on a deprecated endpoint fails rather than passing on a fallback.
+    Every deprecated endpoint answers a 404, so a read that silently stayed on one fails
+    rather than passing on a fallback.
     """
-    legacy = generation == read.LEGACY
-
     def scores_for(name, *, experiment_id=None, trace_id=None):
-        """The canned score rows, in whichever shape the generation answers."""
+        """The canned score rows, in the v3 shape."""
         if experiment_id:
             rate = {"rb": 0.95, "ra": 0.93, "rc": 0.60}[experiment_id]
             rows = [("mean_groundedness", "NUMERIC", 0.9, None),
@@ -115,18 +111,9 @@ def _install_seeded_env(monkeypatch, *, generation: str, healthy_queue: bool = T
             rows = [(name, "NUMERIC", 0.9, None)]
             subject = {"kind": "trace", "id": "t1"}
 
-        out = []
-        for i, (n, dt, value, comment) in enumerate(rows):
-            if legacy:
-                numeric = value if dt == "NUMERIC" else 0
-                out.append({"id": f"s{i}", "name": n, "dataType": dt, "value": numeric,
-                            "stringValue": None if dt == "NUMERIC" else value,
-                            "comment": comment, "traceId": subject["id"],
-                            "datasetRunId": experiment_id})
-            else:
-                out.append({"id": f"s{i}", "name": n, "dataType": dt, "value": value,
-                            "comment": comment, "subject": subject})
-        return out
+        return [{"id": f"s{i}", "name": n, "dataType": dt, "value": value,
+                 "comment": comment, "subject": subject}
+                for i, (n, dt, value, comment) in enumerate(rows)]
 
     def handler(method, url, *, params=None, auth=None, timeout=30, throttle_s=0.0,
                 attempts=8):
@@ -146,44 +133,14 @@ def _install_seeded_env(monkeypatch, *, generation: str, healthy_queue: bool = T
         if path == f"/api/public/datasets/{SUITE}":
             return _Resp(200, {"id": DATASET_ID, "name": SUITE})
 
-        # -- the deprecated arm -------------------------------------------
-        if path == "/api/public/traces":          # the generation probe
-            return _Resp(200, {"data": [], "meta": {"totalPages": 1}}) if legacy else _Resp(404, {})
-        if path.startswith("/api/public/traces/"):
-            if not legacy:
-                return _Resp(404, {})
-            tid = path.rsplit("/", 1)[-1]
-            if tid in RUN_ITEM_TRACES or tid in GOLDEN_TRACES or tid == "fp":
-                body = {"id": tid, "tags": ["golden"] if tid in GOLDEN_TRACES else [],
-                        "observations": [_answer_observation(tid, raw_io=False)],
-                        "scores": ([{"id": "h1", "name": "groundedness", "dataType": "NUMERIC",
-                                     "value": 1.0,
-                                     "comment": "human annotation: correct value is EUR 1,234"}]
-                                   if tid == "gn" else [])}
-                return _Resp(200, body)
+        # -- every deprecated endpoint is gone from this server ------------
+        if re.match(r"/api/public/(traces|observations|sessions|v2/scores|metrics)\b", path):
             return _Resp(404, {})
-        if path == f"/api/public/datasets/{SUITE}/runs":
-            if not legacy:
-                return _Resp(404, {})
-            return _Resp(200, {"data": [{"name": n, "id": i} for n, i, _ in RUNS],
-                               "meta": {"totalPages": 1}})
-        if path.startswith(f"/api/public/datasets/{SUITE}/runs/"):
-            if not legacy:
-                return _Resp(404, {})
-            return _Resp(200, {"datasetRunItems": [{"id": f"i{k}", "traceId": t}
-                                                   for k, t in enumerate(RUN_ITEM_TRACES)]})
-        if path == "/api/public/v2/scores":
-            if not legacy:
-                return _Resp(404, {})
-            return _Resp(200, {"data": scores_for(params.get("name"),
-                                                  experiment_id=params.get("datasetRunId"),
-                                                  trace_id=params.get("traceId")),
-                               "meta": {"totalPages": 1}})
+        if re.match(rf"/api/public/datasets/{SUITE}/runs", path):
+            return _Resp(404, {})
 
-        # -- the v4 arm ----------------------------------------------------
+        # -- the v4 endpoints ----------------------------------------------
         if path == "/api/public/v2/observations":
-            if legacy:
-                return _Resp(404, {})
             tid = params.get("traceId")
             rows = ([_answer_observation(tid, raw_io=True)]
                     if tid in RUN_ITEM_TRACES + GOLDEN_TRACES + ("fp",) else [])
@@ -191,8 +148,6 @@ def _install_seeded_env(monkeypatch, *, generation: str, healthy_queue: bool = T
                 row["tags"] = ["golden"] if tid in GOLDEN_TRACES else []
             return _Resp(200, {"data": rows, "meta": {}})
         if path == "/api/public/v3/scores":
-            if legacy:
-                return _Resp(404, {})
             name = params.get("name")
             if params.get("traceId") == "gn" and not name:
                 return _Resp(200, {"data": [
@@ -206,19 +161,15 @@ def _install_seeded_env(monkeypatch, *, generation: str, healthy_queue: bool = T
                                                   trace_id=params.get("traceId")),
                                "meta": {}})
         if path == "/api/public/experiments":
-            if legacy:
-                return _Resp(404, {})
             assert params.get("datasetId") == DATASET_ID
             return _Resp(200, {"data": [{"id": i, "name": n, "datasetId": DATASET_ID}
                                         for n, i, _ in RUNS], "meta": {}})
         if path == "/api/public/experiment-items":
-            if legacy:
-                return _Resp(404, {})
             return _Resp(200, {"data": [{"id": f"i{k}", "experimentId": params.get("experimentId"),
                                          "traceId": t}
                                         for k, t in enumerate(RUN_ITEM_TRACES)], "meta": {}})
 
-        raise AssertionError(f"unexpected read: {path!r} (generation={generation})")
+        raise AssertionError(f"unexpected read: {path!r}")
 
     monkeypatch.setattr(read, "request_retry", handler)
     monkeypatch.setattr(V, "get_json",
@@ -239,46 +190,48 @@ ALL_CHECKS = {
 }
 
 
-@pytest.mark.parametrize("generation", [read.LEGACY, read.V4])
-def test_healthy_seeded_env_passes_every_assertion(monkeypatch, generation):
-    _install_seeded_env(monkeypatch, generation=generation)
+def test_healthy_seeded_env_passes_every_assertion(monkeypatch):
+    _install_seeded_env(monkeypatch)
     checks = _run()
     assert set(checks) == ALL_CHECKS
     assert all(checks.values()), f"unexpected failures: {[k for k, v in checks.items() if not v]}"
 
 
-@pytest.mark.parametrize("generation", [read.LEGACY, read.V4])
-def test_flipping_the_queue_signal_flips_only_that_assertion(monkeypatch, generation):
+def test_flipping_the_queue_signal_flips_only_that_assertion(monkeypatch):
     # A queue with no PENDING items → the review-queue assertion (and only it) must fail,
     # proving verify runs the REAL assertion, not an always-pass stub.
-    _install_seeded_env(monkeypatch, generation=generation, healthy_queue=False)
+    _install_seeded_env(monkeypatch, healthy_queue=False)
     checks = _run()
     assert checks["review_queue"] is False
     for name in ALL_CHECKS - {"review_queue"}:
         assert checks[name] is True, f"{name} regressed — the remap changed an assertion"
 
 
-def test_the_report_is_identical_on_both_generations(monkeypatch):
-    """The point of the seam, stated as a test: the same project, read through either API,
-    yields the same verdict — so a target's cutover cannot change what `verify` says."""
-    _install_seeded_env(monkeypatch, generation=read.LEGACY)
-    legacy = _run()
-    _install_seeded_env(monkeypatch, generation=read.V4)
-    assert _run() == legacy
+def test_verify_names_no_deprecated_endpoint_itself(monkeypatch):
+    """The seam is the only place this kit reaches Langfuse, so `verify` naming an endpoint
+    at all would be the thing #211 exists to prevent — and #213 makes it a live failure
+    rather than future debt, since the endpoints it would name have no successor here."""
+    body = "\n".join(line for line in pathlib.Path("src/synth/verify.py")
+                      .read_text(encoding="utf-8").splitlines()
+                      if not line.lstrip().startswith("#"))
+    body = body.split('"""', 2)[-1]           # the docstring discusses the migration
+    for retired in ("/api/public/traces", "/api/public/observations",
+                    "/api/public/v2/scores", "/api/public/sessions", "/runs"):
+        assert retired not in body, retired
 
 
 def test_the_dataset_runs_are_read_through_the_experiments_api(monkeypatch):
-    """The v4 arm 404s `/datasets/{name}/runs` outright, so `seeded_runs` and
-    `run_prompt_link` passing there is the acceptance criterion, observed."""
-    _install_seeded_env(monkeypatch, generation=read.V4)
+    """The canned server 404s `/datasets/{name}/runs` outright, so `seeded_runs` and
+    `run_prompt_link` passing is the acceptance criterion, observed."""
+    _install_seeded_env(monkeypatch)
     checks = _run()
     assert checks["seeded_runs"] and checks["run_prompt_link"] and checks["run_level_scores"]
 
 
-def test_verify_recognises_a_v4_host_and_says_so(monkeypatch):
-    """Nothing configures the generation — detection probes for it, and the log names what
-    answered, which is the first thing to know when a passing check starts failing."""
-    _install_seeded_env(monkeypatch, generation=read.V4)
+def test_verify_names_the_v4_read_apis_in_its_log(monkeypatch):
+    """The log names what answered, which is the first thing to know when a passing check
+    starts failing."""
+    _install_seeded_env(monkeypatch)
     lines: list[str] = []
     V.run_verify(load_config("config/demo.yaml"), _state(), log=lines.append)
     assert any("v4 read APIs" in line for line in lines), lines

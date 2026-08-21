@@ -16,16 +16,67 @@ def _plan(scale=0.06):
     return cfg, build_plan(cfg, RUN_DATE)
 
 
-def _batch_events(plan, cfg, spec):
-    """Build one trace's events on the batch shape, where the bodies are directly
-    readable. The deep content semantics below are wire-independent claims about what
-    the builders are fed; core's own suite proves the OTLP serialisation of the same
-    arguments, and ``test_trace_events_ship_as_typed_otlp_spans`` pins the shipped
-    wire (portal #210)."""
-    from langfuse_synth_core.seed import writepath
+def _readable_events(plan, cfg, spec):
+    """One trace's spans, projected back into readable ``{"body": {...}}`` rows.
 
-    with writepath.use_spool_write_path(writepath.BATCH):
-        return build_trace_events(plan.rng, cfg, spec)
+    The deep content semantics below — prompt linkage, tool retries, the chat shape — are
+    claims about what the builders are *fed*, not about the wire, so they were asserted on
+    the batch envelope's directly readable bodies while that wire existed. It does not
+    (portal #213). Rather than restate every assertion in OTLP attribute keys, this reads the
+    real spans and hands back the same field names; ``test_trace_events_ship_as_typed_otlp_spans``
+    pins the wire itself, and core's suite owns the serialisation.
+    """
+    import json
+
+    from langfuse_synth_core.seed import otlp
+    from langfuse_synth_core.timegen import iso
+
+    def _value(v):
+        if "arrayValue" in v:
+            return [next(iter(item.values())) for item in v["arrayValue"]["values"]]
+        return next(iter(v.values()))
+
+    def _decoded(raw):
+        try:
+            return json.loads(raw)
+        except (ValueError, TypeError):
+            return raw
+
+    def _stamp(nanos):
+        if nanos is None:
+            return None
+        return iso(datetime.fromtimestamp(int(nanos) / 1e9, tz=timezone.utc))
+
+    rows = []
+    for span in build_trace_events(plan.rng, cfg, spec):
+        if "spanId" not in span:            # a `score-create` envelope, already readable
+            rows.append(span)
+            continue
+        attrs = {a["key"]: _value(a["value"]) for a in span["attributes"]}
+        metadata = {k[len(otlp.OBS_METADATA_PREFIX):]: _decoded(v)
+                    for k, v in attrs.items() if k.startswith(otlp.OBS_METADATA_PREFIX)}
+        metadata.update({k[len(otlp.TRACE_METADATA_PREFIX):]: _decoded(v)
+                         for k, v in attrs.items()
+                         if k.startswith(otlp.TRACE_METADATA_PREFIX)})
+        body = {
+            "name": span["name"],
+            "startTime": _stamp(span.get("startTimeUnixNano")),
+            "endTime": _stamp(span.get("endTimeUnixNano")),
+            "metadata": metadata or None,
+            "tags": attrs.get(otlp.TAGS),
+        }
+        if otlp.OBS_INPUT in attrs:
+            body["input"] = _decoded(attrs[otlp.OBS_INPUT])
+        if otlp.OBS_OUTPUT in attrs:
+            body["output"] = _decoded(attrs[otlp.OBS_OUTPUT])
+        if otlp.OBS_LEVEL in attrs:
+            body["level"] = attrs[otlp.OBS_LEVEL]
+        if otlp.PROMPT_NAME in attrs:
+            body["promptName"] = attrs[otlp.PROMPT_NAME]
+        if otlp.PROMPT_VERSION in attrs:
+            body["promptVersion"] = int(attrs[otlp.PROMPT_VERSION])
+        rows.append({"body": body})
+    return rows
 
 
 def test_trace_events_ship_as_typed_otlp_spans():
@@ -154,7 +205,7 @@ def test_queue_is_alive():
 def test_trace_events_v2_structure():
     cfg, plan = _plan()
     spec = next(s for s in plan.golden_specs if s.question_kind == "trend")
-    events = _batch_events(plan, cfg, spec)
+    events = _readable_events(plan, cfg, spec)
     names = [e["body"].get("name") for e in events]
     assert names[0] == "copilot-turn"                       # trace shell
     assert "filings_search" in names and "document_fetch" in names
@@ -177,7 +228,7 @@ def test_trace_events_v2_structure():
 def test_escalation_event_emitted():
     cfg, plan = _plan()
     spec = next(s for s in plan.golden_specs if s.question_kind == "escalation")
-    events = _batch_events(plan, cfg, spec)
+    events = _readable_events(plan, cfg, spec)
     assert any(e["body"].get("name") == "escalated_to_human" for e in events)
 
 
@@ -185,7 +236,7 @@ def test_tool_errors_come_with_retry_spans():
     cfg, plan = _plan(scale=0.15)
     spec = next(s for s in plan.ambient_specs
                 if s.error_step and s.error_step != "generation")
-    events = _batch_events(plan, cfg, spec)
+    events = _readable_events(plan, cfg, spec)
     errored = [e for e in events if e["body"].get("level") == "ERROR"]
     assert errored
     retries = [e for e in events
@@ -230,7 +281,7 @@ def test_chat_is_natural_language_not_json():
         by_sess.setdefault(s.session_id, []).append(s)
     multi = sorted(next(v for v in by_sess.values() if len(v) >= 3), key=lambda s: s.turn_index)
     last = multi[-1]
-    events = _batch_events(plan, cfg, last)
+    events = _readable_events(plan, cfg, last)
     msgs = next(e for e in events if e["body"].get("name") == "answer")["body"]["input"]
     assert msgs[0]["role"] == "system"
     # the prior turns are threaded as alternating user/assistant

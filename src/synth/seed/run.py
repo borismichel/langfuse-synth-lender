@@ -22,6 +22,9 @@ from typing import Callable
 from ..config import Config
 from langfuse_synth_core.rng import Rng
 from ..state import REPO_ROOT, RunState
+# Two `timegen`s on purpose: Lender keeps its own sessions-per-day sampler (core
+# docs/SEAM.md tie-break — a different algorithm, not a re-parametrisation), while the
+# as-of → run-anchor resolution is cross-kit and lives in core (portal #229).
 from ..timegen import day_anchor, iso_date
 from langfuse_synth_core.timegen import resolve_run_date
 from .annotation import seed_queue

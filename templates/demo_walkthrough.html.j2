@@ -221,8 +221,8 @@
     <div class="card">
       <h4>Reset</h4>
       <p style="margin:0;font-size:13.5px;color:var(--text-secondary)">Teardown is project-level and depot-native:
-      <strong>deploy again</strong> against a fresh Langfuse project. Re-seeding the same project is safe (deterministic upsert —
-      identical ids); changing coverage needs a fresh project.</p>
+      <strong>deploy again</strong> against a fresh Langfuse project. Do not re-seed the same one — OTLP appends rather than
+      upserting, so the demo would be told twice.</p>
     </div>
   </div>
 

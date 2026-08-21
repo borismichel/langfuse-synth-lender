@@ -10,6 +10,7 @@ total traces derived, not forced) with one ``scale`` parameter for the Cloud pre
 from __future__ import annotations
 
 import os
+from datetime import date
 from pathlib import Path
 from collections.abc import Sequence
 from typing import Any, Literal, Mapping
@@ -60,6 +61,11 @@ class Generation(BaseModel):
     # means "no operator knob set" → keep the `volume.scale` shipped in the config file.
     # `volume.scale` is INTERNAL only — no longer an operator knob in the manifest (Ring 2, #34).
     target_traces: int | None = None
+    # The operator's as-of date (portal #72 sends `--set generation.as_of_date=YYYY-MM-DD`
+    # on every forward generate; portal #229 made the kit honour it). The seeded window
+    # ends on this day; None means "no tether set" and resolves to the wall clock at seed
+    # time (`timegen.resolve_run_date`). A future date is by design — never clamped.
+    as_of_date: date | None = None
     volume: Volume = Field(default_factory=Volume)
     population: Population = Field(default_factory=Population)
     environments: Environments = Field(default_factory=Environments)

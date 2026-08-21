@@ -22,7 +22,8 @@ from typing import Callable
 from ..config import Config
 from langfuse_synth_core.rng import Rng
 from ..state import REPO_ROOT, RunState
-from ..timegen import day_anchor, iso_date, now_utc
+from ..timegen import day_anchor, iso_date
+from langfuse_synth_core.timegen import resolve_run_date
 from .annotation import seed_queue
 from .cert_runs import run_gate_verdict, run_pass_rates
 from .generator import Plan, build_plan
@@ -44,7 +45,10 @@ DEFAULT_SPOOL = REPO_ROOT / ".synth_spool" / "events.ndjson"
 def run_seed(cfg: Config, *, dry_run: bool = False, persist: bool = True,
              run_date: datetime | None = None, spool_path: str | Path | None = None,
              do_import: bool = True, log: Callable[[str], None] = print) -> RunState:
-    run_date = run_date or now_utc()
+    # The run anchor: an explicit `run_date` (tests/adapters), else the operator's as-of
+    # date from the config, else now — the third leg of `seed + target_traces + as-of →
+    # byte-identical Spool` (portal #229). This is the only place the clock may be read.
+    run_date = run_date or resolve_run_date(cfg.generation.as_of_date)
     base_url = cfg.target.base_url
     spool_path = Path(spool_path) if spool_path else DEFAULT_SPOOL
 

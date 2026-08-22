@@ -88,6 +88,11 @@ injection, runs/results/compare, requirement coverage, promote-from-queue,
 sign-off + evidence packs. *(The workbench is a work-in-progress, alpha-stage
 surface — the seeded certification story is the supported path.)*
 
+The workbench's **Temperature** field is recorded in the release tuple and on the
+sign-off, but it is not sent to the model: the Anthropic SDK (1.0.0) removed the
+sampling parameters and the companion layer no longer forwards them. Certification
+runs are reproducible through the pinned prompt and model, not the sampler.
+
 ## What the seeded data contains (full preset)
 
 - **~10–12k traces in ~1,150 sessions** over 30 days — sessions/day driven (~50

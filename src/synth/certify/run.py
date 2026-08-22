@@ -65,7 +65,7 @@ def certify(cfg: Config, model: str, *, run_name: str | None = None,
     ds_name = cert.dataset.name
     dataset = lf.get_dataset(ds_name)
     log(f"· certifying {model} against {ds_name!r} as {name!r} "
-        f"({cert.prompt_name} v{pver}, temperature 0) …")
+        f"({cert.prompt_name} v{pver}) …")
 
     def task(*args, **kwargs):
         item = kwargs.get("item") if "item" in kwargs else (args[0] if args else None)
@@ -76,7 +76,7 @@ def certify(cfg: Config, model: str, *, run_name: str | None = None,
     res = dataset.run_experiment(
         name=name,
         description=(f"Live certification run: model={model}, prompt={cert.prompt_name} "
-                     f"v{pver}, temperature 0. Release = (model, prompt, params)."),
+                     f"v{pver}. Release = (model, prompt, params)."),
         metadata={"model": model, "prompt_version": pver,
                   "release": f"{model}+{cert.prompt_name}.v{pver}"},
         task=task,

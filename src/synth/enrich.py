@@ -40,6 +40,9 @@ def run_enrich(cfg: Config, n: int = 50, log: Callable[[str], None] = print) -> 
     out: dict[str, list[str]] = {}
     for kind, prompt in _PROMPTS.items():
         log(f"· generating {per_kind} {kind!r} phrasings with {model} …")
+        # `temperature` reaches the OpenAI provider only: anthropic SDK 1.0.0 removed the
+        # sampling params and core's companion layer no longer forwards them (portal #231).
+        # The phrasings vary run to run through the prompt, not the sampler.
         result = llm.complete(
             system="", messages=[{"role": "user", "content": prompt.format(n=per_kind)}],
             temperature=0.9, max_tokens=1500)

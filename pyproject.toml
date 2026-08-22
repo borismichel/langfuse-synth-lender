@@ -1,6 +1,6 @@
 [project]
 name = "langfuse-demo-synth-lender"
-version = "0.6.1"
+version = "0.6.2"
 description = "Synthesiser for believable Langfuse demo data — regulated-lender model-certification scenario (filing copilot + certification gate)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,7 +27,7 @@ dependencies = [
     # v4 Experiments API, which is where this kit's dataset runs live once a target has cut
     # over — and its `verify` reads them there.
     "langfuse>=4.14,<5",
-    "anthropic>=0.40.0",     # live model calls at demo time — Anthropic provider (default)
+    "anthropic>=1.0.0",      # live model calls at demo time — Anthropic provider (default); 1.0.0 removed the sampling params, core v4.1.1 no longer sends them (portal #231)
     "openai>=1.40.0",        # live model calls at demo time — OpenAI provider (LAN-378)
     "pydantic>=2.6",
     "pyyaml>=6.0",

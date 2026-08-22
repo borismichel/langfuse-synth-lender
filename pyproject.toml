@@ -1,6 +1,6 @@
 [project]
 name = "langfuse-demo-synth-lender"
-version = "0.6.1"
+version = "0.6.2"
 description = "Synthesiser for believable Langfuse demo data — regulated-lender model-certification scenario (filing copilot + certification gate)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,13 +21,13 @@ dependencies = [
     # (the Docker build installs `git` to fetch it — no build secret). langfuse below is still
     # declared directly: it is this kit's own SDK surface (run_experiment, prompts,
     # datasets), not only the lib's.
-    "langfuse-synth-core @ git+https://github.com/borismichel/langfuse-synth-core@v4.1.0",
+    "langfuse-synth-core @ git+https://github.com/borismichel/langfuse-synth-core@v4.1.1",
     # v4 Python SDK (run_experiment, prompts, datasets, api client). The floor matches
     # core's DELIBERATE pin (portal #211): 4.14.0 is the first SDK carrying a client for the
     # v4 Experiments API, which is where this kit's dataset runs live once a target has cut
     # over — and its `verify` reads them there.
     "langfuse>=4.14,<5",
-    "anthropic>=0.40.0",     # live model calls at demo time — Anthropic provider (default)
+    "anthropic>=1.0.0",      # live model calls at demo time — Anthropic provider (default); 1.0.0 removed the sampling params, core v4.1.1 no longer sends them (portal #231)
     "openai>=1.40.0",        # live model calls at demo time — OpenAI provider (LAN-378)
     "pydantic>=2.6",
     "pyyaml>=6.0",
@@ -44,7 +44,7 @@ playground = [           # `synth playground` — the analyst-copilot UI + /doss
     # collapse onto the core [companion] extra — the ONE canonical set, shared by every
     # migrated kit. Same ref as the runtime pin above (see RELEASING.md); bump both together,
     # never let them drift.
-    "langfuse-synth-core[companion] @ git+https://github.com/borismichel/langfuse-synth-core@v4.1.0",
+    "langfuse-synth-core[companion] @ git+https://github.com/borismichel/langfuse-synth-core@v4.1.1",
 ]
 dev = [                  # dev/authoring-time only — NEVER in the runtime image (Spec A §3)
     "pytest>=8,<9",
@@ -52,7 +52,7 @@ dev = [                  # dev/authoring-time only — NEVER in the runtime imag
     # of the runtime core pin above — SAME ref (the released tag; #145 G6), so the gate that reproduces the
     # oracle and the core the kit runs against are the one, identical build. Bump both pins
     # together, never let them drift apart.
-    "langfuse-synth-core[authoring] @ git+https://github.com/borismichel/langfuse-synth-core@v4.1.0",
+    "langfuse-synth-core[authoring] @ git+https://github.com/borismichel/langfuse-synth-core@v4.1.1",
 ]
 
 [project.scripts]

@@ -27,6 +27,9 @@ class Release(BaseModel):
     prompt_name: str = "analyst-copilot"
     prompt_version: int | None = None      # pin by version (preferred for certification)
     prompt_label: str = "production"       # used when no version pin
+    # Recorded as part of the release tuple (model, prompt, params) and shown on the
+    # sign-off; not forwarded to Anthropic — SDK 1.0.0 removed the sampling params and
+    # core's companion layer stopped sending them (portal #231).
     temperature: float = 0.0
 
 

@@ -39,7 +39,7 @@ Use Python 3.12 (the runtime image's Python version):
 ```sh
 python -m venv .venv
 .venv/bin/pip install -e '.[dev,playground]' 'langfuse==4.14.4'
-.venv/bin/pytest -q tests/test_experiment_evidence.py tests/test_verify_split.py tests/test_evaluator_cutover.py
+.venv/bin/pytest -q tests/test_experiment_evidence.py tests/test_verify_split.py tests/test_evaluator_cutover.py tests/test_stable_evaluator_api.py
 ```
 
 SDK **4.14.4** is the released-image version identified in #251's deployment evidence.
@@ -67,12 +67,13 @@ range. It must continue to reproduce the old failure as well as pass the fixed p
 
 ### Local validation, 2026-09-15
 
-- SDK 4.14.4: full suite **196 passed** (one unrelated Starlette deprecation warning).
-- SDK 4.15.3 (fresh runtime resolution): **39 focused checks passed** across experiment
+- SDK 4.14.4: full suite **199 passed** after integration with #250 (one unrelated Starlette deprecation warning).
+- SDK 4.15.3 (fresh runtime resolution): **44 focused checks passed** across experiment
   evidence, readback verification and evaluator mappings.
 - Typechecking: the new experiment boundary, certification task, workbench runner
-  and default task pass. Three errors in existing seed aggregate, verifier provenance
-  and judge-name code also reproduce on the unchanged base; this patch adds none.
+  and default task pass, including stable judge reconciliation after #250. Existing
+  errors in seed aggregate and verifier provenance code reproduce on the unchanged
+  base; this patch adds none.
 - Contract checks: all blocking checks pass. The existing health-path and companion
   app-layout migration findings remain advisory.
 

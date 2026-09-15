@@ -1,160 +1,104 @@
-"""Moving this kit's managed evaluators onto their v4 observation-scoped successors.
+"""Inspect and retire only kit-owned predecessors through the stable rule API.
 
-Evaluation rules are **project state**: they live in Langfuse, not in this repo, and a
-`seed` against a project that has been seeded before meets whatever the last version of
-this kit left there. That is what makes the v4 evaluator migration different from the rest
-of Spec H — the write path and the read seam changed code, this changes rows in someone
-else's database — and it is why the migration is a lifecycle rather than an edit:
-
-1. **provision** the successor, always disabled (``judges.ensure_rule``, called by
-   ``seed.run._populate_managed_evaluators`` — i.e. by `seed` and by `synth evaluators`);
-2. **retire** the predecessor by disabling it, never deleting it (:func:`retire_legacy`,
-   called from the same place);
-3. **validate** the successor on newly ingested data and compare its scores against the
-   legacy rule's (:func:`compare`);
-4. **enable** it, at the configured sampling, only once step 3 is satisfied
-   (:func:`enable_successors`).
-
-Steps 3 and 4 are an operator's, behind `synth evaluators --enable-live`, because they are
-the two that change what a demo project *scores* — and because the shipped configs create
-the live rule paused (``certification.trace_judge_sampling`` defaults to 0.0), so the
-ordinary depot deployment never needs them.
-
-**What "successor" means concretely.** The pre-v4 live rule matched ``type = GENERATION``.
-Under v4 that matches the planning generation and the answer generation of every copilot
-turn — two scores per trace, one of them grading tool-call JSON. The successor targets the
-turn's **root observation** instead: one per trace, carrying the analyst's question as its
-input and the copilot's answer as its output. Every variable the judge reads is already
-there, which is the consolidation v4 requires — an observation evaluator cannot read
-siblings or children.
-
-The certification rules do not move. They were already ``target=experiment``, which is v4's
-successor to the legacy ``dataset`` target, and the code evaluators grade against
-``expected_output`` — a source only the experiment target exposes.
-
-The unstable-API risk this rides on is recorded in :mod:`synth.workbench.judges`.
+A successor must have the intended filters and stable evaluator assignment before
+its predecessor is disabled. No evaluator, rule or historical score is deleted.
+Legacy trace/dataset rules cannot be re-enabled via the stable API; retaining their
+configuration keeps an audit/rollback reference without promising a one-PATCH undo.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 from ..config import Config
-from .judges import JUDGE_TEMPLATES, list_rules, patch_rule, rule_name
+from .judges import (
+    CODE_EVALUATORS, JUDGE_TEMPLATES, certification_dataset_ids, list_judges,
+    get_rule, list_rules, patch_rule, predecessor_names, rule_filter, rule_name, successor_assignment,
+)
 from .reads import probe_reader
 
-#: v4's whole evaluation-rule target vocabulary. ``trace`` and ``dataset`` are the legacy
-#: targets the unstable API still returns for existing rows but no longer accepts.
 LIVE_TARGETS = ("observation", "experiment")
-
-#: Legacy targets — a rule on one of these is a migration subject by definition.
-RETIRED_TARGETS = ("trace", "dataset")
-
-#: Variable sources an ``observation`` rule may map from. Anything else (notably
-#: ``expected_output``) is experiment-only.
 OBSERVATION_SOURCES = ("input", "output", "metadata", "tool_calls")
-
-#: The suffix this kit's live rule carried before v4 (``wb-<judge>-traces``). Kept so
-#: :func:`retire_legacy` can recognise its own predecessor by name and leave every other
-#: project's rules alone.
-_LEGACY_LIVE_SUFFIX = "-traces"
-
-
-def _ours(rule: dict) -> bool:
-    """True for a rule this kit created — under the current naming or the pre-v4 one.
-
-    A rule is ours when its *deployment* name is the one we would give a rule for its
-    evaluator; two rules can share an evaluator and only one of them be ours."""
-    name = rule.get("name") or ""
-    judge = (rule.get("evaluator") or {}).get("name")
-    if not judge:
-        return False
-    return (name == f"wb-{judge}{_LEGACY_LIVE_SUFFIX}"
-            or any(name == rule_name(judge, t) for t in LIVE_TARGETS))
 
 
 @dataclass
 class Inventory:
-    """What the project currently holds, split by what the migration must do with it."""
-
     api_available: bool = True
-    #: Set when the project's rules could not be read at all. An empty inventory then
-    #: means "unknown", never "nothing there" — so nothing may be retired on the strength
-    #: of it.
     error: str = ""
-    #: Rules already on a v4 target and named by this kit's current scheme.
     successors: list[dict] = field(default_factory=list)
-    #: Rules to retire: a legacy target, or this kit's pre-v4 live rule.
     legacy: list[dict] = field(default_factory=list)
+    evaluators: dict[str, dict] = field(default_factory=dict)
 
     def successor(self, judge: str, target: str = "observation") -> dict | None:
-        want = rule_name(judge, target)
-        return next((r for r in self.successors if r.get("name") == want), None)
+        matches = [r for r in self.successors if r.get("name") == rule_name(judge, target)]
+        return matches[0] if len(matches) == 1 else None
 
 
 def inventory(cfg: Config) -> Inventory:
-    """Read every evaluation rule in the project and classify it.
-
-    Two different things land in :attr:`Inventory.legacy`, and the difference matters:
-
-    * a rule on a **retired target** (``trace`` / ``dataset``), whoever created it. Under
-      v4 it stops producing results at the Cloud cutover, so disabling it is the
-      documented migration step rather than a liberty taken with someone else's rule;
-    * this kit's own **pre-v4 live rule** (``wb-<judge>-traces``), recognised by name.
-
-    Anything else — a rule on a v4 target that this kit did not create — is left out of
-    both lists on purpose: switching off someone else's evaluation is not this migration's
-    business."""
     rules, available, err = list_rules(cfg.target.base_url)
     inv = Inventory(api_available=available, error=err)
     if not available or err:
         return inv
-    for rule in rules:
-        if rule.get("target") in RETIRED_TARGETS:
-            inv.legacy.append(rule)
-        elif not _ours(rule):
-            continue
-        elif (rule.get("name") or "").endswith(_LEGACY_LIVE_SUFFIX):
-            inv.legacy.append(rule)
-        else:
-            inv.successors.append(rule)
+    evaluators, available, err = list_judges(cfg.target.base_url)
+    inv.api_available, inv.error = available, err
+    if not available or err:
+        return inv
+    for name in (*CODE_EVALUATORS, *JUDGE_TEMPLATES):
+        matches = [e for e in evaluators if e.get("name") == name]
+        if len(matches) != 1:
+            continue  # ambiguous evaluator identity cannot authorize retirement
+        ev = matches[0]
+        inv.evaluators[name] = ev
+        for rule in rules:
+            # A shared rule belongs to its operator. Retiring it would also stop
+            # unrelated assignments, even when the deployment name is ours.
+            if {a.get("evaluatorId") for a in rule.get("evaluatorAssignments", [])} != {ev["id"]}:
+                continue
+            for target in LIVE_TARGETS:
+                if rule.get("name") == rule_name(name, target):
+                    inv.successors.append(rule)
+                elif rule.get("name") in predecessor_names(name, target):
+                    inv.legacy.append(rule)
     return inv
 
 
-def retire_legacy(cfg: Config, inv: Inventory | None = None) -> tuple[list[str], list[str]]:
-    """Disable every legacy rule whose successor is in place. Returns ``(names, notes)``.
-
-    Disabled, never deleted: the row keeps its filters, mappings and history, so a rollback
-    is one PATCH back to ``enabled=true`` and the scores it already wrote stay readable.
-
-    **A predecessor is only retired once its successor exists.** Everything in
-    :mod:`.judges` degrades to a logged note rather than failing a `seed` — which is right
-    for a capability that may be absent, and wrong if it lets a retirement outlive the
-    creation it was paired with. A rejected filter or an absent LLM connection would
-    otherwise leave the project with the old rule off and no new one on: judging silently
-    stops, and the log line that said so scrolled past during a seed. A rule on a
-    **retired target** is exempt from that check — it stops producing results at the v4
-    cutover whatever we do, so leaving it enabled buys nothing."""
+def retire_legacy(cfg: Config, inv: Inventory | None = None, *,
+                  dataset_ids: list[str] | None = None) -> tuple[list[str], list[str]]:
     inv = inv or inventory(cfg)
-    if inv.error:
-        return [], [f"could not read this project's evaluation rules ({inv.error}) — "
-                    "nothing retired; re-run `synth evaluators` once the host answers"]
-    if not inv.api_available:
-        return [], ["unstable evaluator API not available — retire the legacy rule in the UI"]
+    if inv.error or not inv.api_available:
+        return [], [f"could not read this project's evaluation rules ({inv.error or 'stable API unavailable'}) — nothing retired"]
+    if dataset_ids is None:
+        dataset_ids, _ = certification_dataset_ids(cfg)
     retired, notes = [], []
     for rule in inv.legacy:
-        if rule.get("enabled") is False:
-            continue                                   # already retired; nothing to do
-        name = rule.get("name") or rule["id"]
-        judge = (rule.get("evaluator") or {}).get("name")
-        if rule.get("target") not in RETIRED_TARGETS and not inv.successor(judge or ""):
-            notes.append(f"{name}: left ENABLED — its observation successor is not in this "
-                         "project, so retiring it would stop judging with nothing to take over")
+        if not rule.get("enabled"):
+            continue
+        name = rule["name"]
+        evaluator_id = rule["evaluatorAssignments"][0]["evaluatorId"]
+        judge = next(n for n, e in inv.evaluators.items() if e["id"] == evaluator_id)
+        target = "experiment" if name in predecessor_names(judge, "experiment") else "observation"
+        successor = inv.successor(judge, target)
+        if successor:
+            successor, read_error = get_rule(cfg, successor["id"])
+            if read_error:
+                notes.append(f"{name}: left ENABLED — {read_error}")
+                continue
+        assignment, mapping_error = successor_assignment(inv.evaluators[judge], rule)
+        valid = (successor is not None and not mapping_error
+                 and (target != "experiment" or bool(dataset_ids))
+                 and successor.get("filter") == rule_filter(target, dataset_ids)
+                 and successor.get("enabled") == rule.get("enabled")
+                 and successor.get("sampling") == rule.get("sampling")
+                 and successor.get("evaluatorAssignments") == [assignment])
+        # Duplicate predecessors are also ambiguous even if a successor exists.
+        peers = [r for r in inv.legacy if r.get("name") in predecessor_names(judge, target)]
+        if not valid or len(peers) != 1:
+            notes.append(f"{name}: left ENABLED — replacement configuration/assignment is not validated")
             continue
         ok, err = patch_rule(cfg, rule["id"], enabled=False)
         if ok:
             retired.append(name)
         else:
-            notes.append(f"{name}: {err[:90]}")
+            notes.append(f"{name}: {err}")
     return retired, notes
 
 
@@ -256,7 +200,7 @@ def enable_successors(cfg: Config, *, sampling: float, tolerance: float = 0.05,
         return [], [f"could not read this project's evaluation rules ({inv.error}) — "
                     "nothing enabled"]
     if not inv.api_available:
-        return [], ["unstable evaluator API not available — enable the rule in the UI"]
+        return [], ["stable evaluator API not available — enable the rule in the UI"]
     enabled, notes = [], []
     for judge in JUDGE_TEMPLATES:
         rule = inv.successor(judge)

@@ -22,7 +22,7 @@ SCRIPT_OUT = REPO_ROOT / "DEMO_SCRIPT.md"
 MAP_OUT = REPO_ROOT / "DEMO_MAP.md"
 WALKTHROUGH_OUT = REPO_ROOT / "DEMO_WALKTHROUGH.html"
 
-# The managed judges, created once in the UI (or via the workbench's unstable-API
+# The managed judges, created once in the UI (or via the workbench's stable-API
 # path). They grade prose; the deterministic assertions grade the verdicts.
 _GROUNDEDNESS_JUDGE = """You are auditing a credit-analyst copilot answer for groundedness.
 

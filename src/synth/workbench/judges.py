@@ -362,6 +362,8 @@ def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str], *,
         fields = {"filter": body["filter"]} if current.get("filter") != body["filter"] else {}
         if not fields:
             return current, ""
+        if any(a.get("evaluatorId") != judge["id"] for a in assignments):
+            return None, f"{name}: shared rule filters differ; operator reconciliation required, left unchanged"
         result, err = _write(cfg, "PATCH", path, fields)
     else:
         predecessors = [r for r in rows if r.get("name") in predecessor_names(judge["name"], target)]

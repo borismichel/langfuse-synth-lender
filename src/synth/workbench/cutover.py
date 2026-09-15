@@ -43,6 +43,12 @@ def inventory(cfg: Config) -> Inventory:
     if not available or err:
         return inv
     for name in (*CODE_EVALUATORS, *JUDGE_TEMPLATES):
+        for target in LIVE_TARGETS:
+            successors = [r for r in rules if r.get("name") == rule_name(name, target)]
+            predecessors = [r for r in rules if r.get("name") in predecessor_names(name, target)]
+            if len(successors) > 1 or len(predecessors) > 1:
+                inv.error = f"ambiguous rules for {name} ({target}); resolve duplicate names before retirement"
+                return inv
         matches = [e for e in evaluators if e.get("name") == name]
         if len(matches) != 1:
             continue  # ambiguous evaluator identity cannot authorize retirement

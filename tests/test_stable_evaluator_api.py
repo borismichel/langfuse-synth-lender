@@ -350,3 +350,28 @@ def test_provisioning_never_writes_provider_connections_even_with_environment_ke
     provision()
     assert len(api.evaluators) == 5
     assert not any("llm-connections" in path for _, path, *_ in api.calls)
+
+
+def test_shared_rules_with_different_filters_are_not_reconfigured(api):
+    provision()
+    shared = next(r for r in api.rules if "groundedness-observations" in r["name"])
+    shared["evaluatorAssignments"].append({"evaluatorId": "operator-evaluator", "variableMapping": None})
+    shared["filter"] = []
+    before = deepcopy(shared)
+    output = provision()
+    assert shared == before
+    assert "shared rule" in output and "operator" in output
+
+
+def test_foreign_assignments_cannot_hide_an_ambiguous_successor_during_retirement(api):
+    provision()
+    old = add_predecessor(api)
+    provision()
+    old["enabled"] = True
+    successor = next(r for r in api.rules if "groundedness-observations" in r["name"])
+    duplicate = {**deepcopy(successor), "id": "foreign-successor",
+                 "evaluatorAssignments": [{"evaluatorId": "operator-evaluator", "variableMapping": None}]}
+    api.rules.append(duplicate)
+    output = provision()
+    assert "ambiguous" in output
+    assert old["enabled"]

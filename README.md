@@ -234,6 +234,41 @@ output. They default to sampling 1.0. Live judge rules select `traceName` and
 observation `name` equal to `copilot-turn`, plus `isRootObservation = true`.
 They retain `certification.trace_judge_sampling` and start **disabled**. Existing
 operator activation, sampling and unrelated assignments are preserved.
+When configured sampling is zero, disabled live rules retain the kit's 1% floor;
+`--enable-live` still requires an explicitly positive configured sampling rate.
+New certification judge rules are disabled when their model is missing. Once a
+rule exists, ordinary provisioning never activates it, even after a model appears.
+
+**Readback verification and repair.** `synth verify` independently checks the five
+managed definitions and all seven kit rules. It reads each stable evaluator and
+rule ID, validates the code/rubrics, categorical pass/fail or numeric 0–1 scales,
+assignments, experiment context, dataset/root filters and configured sampling.
+Unrelated project rules are outside the completeness check. Intentional operator
+sampling changes must also be reflected in the config supplied to verification.
+Saved judges paused for a missing model remain complete demo configuration; the
+report names their pause reason and explicitly says they are not runnable.
+
+The portal runs `synth verify --initial-evaluators` for new deployments, enforcing
+disabled live rules and disabled missing-model judge rules before reporting Ready.
+Later manual verification omits that flag to respect operator activation choices.
+Missing or misconfigured definitions/rules fail even when all historical scores
+exist. Stable API absence is reported explicitly as unsupported on self-hosted
+targets; Cloud API, authentication, rate-limit and server failures fail verification.
+
+The **Spool contains observations and scores, not evaluator definitions or rules**.
+To repair only managed configuration, use the deployment's original config and
+Langfuse project credentials:
+
+```sh
+synth evaluators --config config/cloud-demo.yaml
+synth verify --config config/cloud-demo.yaml
+```
+
+This does not regenerate or import the Spool, rewrite historical scores, configure
+model credentials, run evaluations or backfill. Review reported ownership conflicts
+and deliberate sampling changes in Langfuse; repair preserves existing activation
+and sampling choices. Existing demo projects are not modified by upgrading this kit
+or the registry. Never replay the Spool to repair evaluators.
 
 **Legacy rules.** Stable rules use `wb-<metric>-experiments-v2` and
 `wb-<metric>-observations-v2`. Recognised kit predecessors (`-experiments`,

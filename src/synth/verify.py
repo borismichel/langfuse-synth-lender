@@ -81,7 +81,8 @@ def _costed(observation) -> bool:
     return bool(observation.total_cost or (observation.cost_details or {}).get("total"))
 
 
-def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
+def run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool = False,
+               log=print) -> VerifyReport:
     # `try_resolve`, not `resolved`: bad keys or a wrong host must come back as failed
     # checks with the reason on each line, which is what this report is for — not as a
     # traceback in place of it. Unresolved, each read below probes again inside its own
@@ -343,6 +344,17 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
         report.add("score_methods", ok, f"score counts: {present}")
     except Exception as exc:  # noqa: BLE001
         report.add("score_methods", False, f"error: {exc}")
+
+    # Seeded score rows are narrative evidence, never proof of evaluator provisioning.
+    from .workbench.verification import verify_managed_evaluators
+
+    try:
+        for name, ok, detail in verify_managed_evaluators(cfg, initial=initial_evaluators):
+            report.add(name, ok, detail)
+    except Exception as exc:  # noqa: BLE001 — malformed/unreadable configuration fails closed
+        report.add("managed_evaluators", False,
+                   f"could not verify managed configuration ({type(exc).__name__}); "
+                   "check the supported API, then run `synth evaluators --config <same-config>`")
 
     for c in report.checks:
         log(f"  [{'PASS' if c.ok else 'FAIL'}] {c.name}: {c.detail}")

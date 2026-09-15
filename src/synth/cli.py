@@ -94,6 +94,8 @@ def count_spool(spool: str = typer.Argument(None, help="Spool file to count (def
 
 @app.command()
 def verify(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
+           initial_evaluators: bool = typer.Option(False, "--initial-evaluators",
+               help="Also enforce safe initial rule activation on a fresh deployment."),
            set_overrides: SetOverrides = None):
     """Query the data back via the API and assert the golden path."""
     from .verify import run_verify
@@ -103,7 +105,8 @@ def verify(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
         typer.echo("No .synth_state.json — run `synth seed` first.", err=True)
         raise typer.Exit(code=2)
     state = RunState.load()
-    report = run_verify(cfg, state, log=lambda m: typer.echo(m))
+    report = run_verify(cfg, state, initial_evaluators=initial_evaluators,
+                        log=lambda m: typer.echo(m))
     typer.echo(f"\n{'✓ ALL CHECKS PASSED' if report.ok else '✗ SOME CHECKS FAILED'}")
     raise typer.Exit(code=0 if report.ok else 1)
 

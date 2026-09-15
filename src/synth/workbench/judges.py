@@ -254,6 +254,10 @@ def ensure_judge(cfg: Config, name: str) -> tuple[dict | None, str]:
     })
 
 
+def get_evaluator(cfg: Config, evaluator_id: str) -> tuple[dict | None, str]:
+    return _read(cfg.target.base_url, f"{EVALUATORS_PATH}/{quote(evaluator_id, safe='')}")
+
+
 def judge_status(judge: dict) -> str:
     if judge.get("status") == "paused":
         return (f"paused: {judge.get('pausedReason') or 'configuration required'} — "

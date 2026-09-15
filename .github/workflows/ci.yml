@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  sdk-test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -45,3 +45,15 @@ jobs:
       # this flag is passed. Drop the flag when the shape debt is paid.
       - name: Contract conformance (synth-authoring conformance; shape debt advisory)
         run: synth-authoring conformance . --advisory
+
+  # Keep the repository ruleset's required check named `test` while requiring
+  # every SDK matrix entry to pass. Failed/cancelled jobs must fail this gate.
+  test:
+    runs-on: ubuntu-latest
+    needs: sdk-test
+    if: always()
+    steps:
+      - name: Require all SDK checks
+        env:
+          SDK_RESULT: ${{ needs.sdk-test.result }}
+        run: test "$SDK_RESULT" = success

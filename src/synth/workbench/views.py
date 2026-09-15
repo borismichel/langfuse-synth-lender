@@ -4,7 +4,7 @@ Routes (mounted under /workbench by live/app.py):
   GET  /                overview: catalog, recent runs, coverage snapshot, role switcher
   GET  /designer        compose an experiment spec
   POST /specs           save spec        POST /evaluators   inject evaluator code
-  POST /judges          ensure managed judge + experiment rule (unstable API)
+  POST /judges          ensure managed judge + certification rule (stable API)
   GET  /specs[/ref]     spec list / detail (canonical JSON + hash)
   POST /runs            trigger          GET /runs[/id]     progress + filterable results
   GET  /compare         side-by-side     GET /coverage      requirements matrix
@@ -300,24 +300,31 @@ def build_router(cfg: Config, adapter: "CompanionAdapter | None" = None):
         return page(body, title=f"{brand} — Designer", wide=True)
 
     def _judges_panel(cfg: Config, cat: Catalog) -> str:
-        from .judges import JUDGE_TEMPLATES
+        from .judges import JUDGE_TEMPLATES, judge_status
 
         lf = Links.from_cfg(cfg)
         deploy_link = _lf(lf.evals(), "judge deployments in Langfuse →")
         if not cat.judges_api:
-            return ("<label>Managed LLM judges</label><div class='note'>The unstable evaluator "
-                    "API isn't available on this server — create the judges once in the UI "
-                    "(prompts + scopes in DEMO_SCRIPT.md beat 4). They score new runs automatically.</div>")
-        existing = {j.get("name") for j in cat.judges}
+            return ("<label>Managed LLM judges</label><div class='note'>Evaluator management "
+                    "is unavailable. Check the Langfuse connection and server version. "
+                    + _e(cat.error) + "</div>")
         rows = []
+        if cat.error:
+            rows.append("<div class='note'>" + _e(cat.error) + "</div>")
         for name in JUDGE_TEMPLATES:
-            status = (_chip("configured", "green") if name in existing
-                      else f"<button type='submit' name='judge' value='{_e(name)}' "
-                           f"formaction='{local('/workbench/judges')}' formmethod='post'>create + scope to suites</button>")
+            matches = [j for j in cat.judges if j.get("name") == name]
+            if len(matches) > 1:
+                status = _chip("ambiguous name — resolve duplicates in Langfuse", "red")
+            else:
+                status = (_chip(judge_status(matches[0]), "red" if matches[0].get("status") == "paused" else "green")
+                          if matches else "")
+                status += (f"<button type='submit' name='judge' value='{_e(name)}' "
+                           f"formaction='{local('/workbench/judges')}' formmethod='post'>"
+                           + ("reconcile" if matches else "create + scope to certification") + "</button>")
             rows.append(f"<div class='kv'><span><code>{_e(name)}</code> (managed LLM judge)</span>"
                         f"<span>{status}</span></div>")
-        return ("<label style='margin-top:18px'>Managed LLM judges (created via API, scoped to "
-                "the suites' experiment runs — fire automatically on every new run) "
+        return ("<label style='margin-top:18px'>Managed LLM judges — future certification runs. "
+                "Paused judges need an evaluation model in project settings. "
                 + deploy_link + "</label>" + "".join(rows))
 
     @r.post("/evaluators")
@@ -332,18 +339,20 @@ def build_router(cfg: Config, adapter: "CompanionAdapter | None" = None):
 
     @r.post("/judges")
     async def add_judge(request: Request):
-        from .judges import ensure_judge, ensure_rule
+        from .judges import certification_dataset_ids, ensure_judge, ensure_rule, judge_status
 
         form = await request.form()
         name = form.get("judge", "")
-        cat = _catalog(cfg, force=True)
+        if not isinstance(name, str):
+            return RedirectResponse(local("/workbench/designer?err=Invalid judge name"), status_code=303)
         judge, err = ensure_judge(cfg, name)
-        if err:
+        if judge is None:
             return RedirectResponse(local(f"/workbench/designer?err={err[:300]}"), status_code=303)
-        ds_ids = [d.id for d in cat.datasets if d.id]
-        _rule, rerr = ensure_rule(cfg, judge, ds_ids)
+        ds_ids, rerr = certification_dataset_ids(cfg)
+        if not rerr:
+            _rule, rerr = ensure_rule(cfg, judge, ds_ids)
         _catalog(cfg, force=True)
-        msg = f"judge {name} configured" + (f"; rule: {rerr[:200]}" if rerr else " + scoped to suites")
+        msg = f"judge {name}: {judge_status(judge)}" + (f"; rule: {rerr[:200]}" if rerr else " + scoped to suites")
         return RedirectResponse(local(f"/workbench/designer?ok={msg}"), status_code=303)
 
     # -- specs ----------------------------------------------------------------

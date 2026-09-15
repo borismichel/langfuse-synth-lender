@@ -168,12 +168,11 @@ def evaluators(config: str = typer.Option(DEFAULT_CONFIG, "--config", "-c"),
                    0.05, "--tolerance",
                    help="Numeric agreement tolerance when comparing with the legacy rule."),
                set_overrides: SetOverrides = None):
-    """Populate the project's managed LLM-judge evaluators (groundedness,
-    citation_coverage) + scope them to the suite — without re-seeding. Needs the
-    unstable evaluator API (Cloud / newer self-hosted) and an LLM connection: set
-    ANTHROPIC_API_KEY in .env and this upserts the connection too, else add one in
-    project settings first. Also retires any rule the project still carries on a
-    target v4 no longer serves — disabled, never deleted.
+    """Reconcile all five evaluators and certification rules without re-seeding.
+    Uses the stable v2 API. Definitions need no provider credentials; judges use
+    the project default evaluation model and may be paused until it is configured.
+    Existing explicit evaluator models and all provider connections are preserved.
+    Validated kit-owned predecessor rules are disabled, never deleted.
 
     The live (observation-scoped) rules are always created DISABLED. `--enable-live`
     is the separate, deliberate step that turns them on: it compares the successor's

@@ -63,7 +63,7 @@ Deploying this kit lands everything it takes to present the demo:
    exposing the evaluator API (Cloud, current self-hosted), seeding also
    populates the project's **Evaluators** page (three code evaluators + two
    LLM judges, scoped to the suite); the judges bind to the project's
-   Anthropic LLM connection, configured once in Langfuse project settings.
+   default evaluation model, configured once in Langfuse project settings (definitions can be saved without it).
 3. Present from the **Presenter Runbook** on the deployment page and the seeded
    Langfuse project.
 4. The Companion is the encore: it is never running by default — start it from
@@ -206,50 +206,56 @@ double the volume (core `docs/WRITE_PATHS.md`). Deterministic BLAKE2b ids; **see
 experiment runs** via the SDK `run_experiment` path + backdated caseload; annotation queue
 via the public queues API.
 
-**Evaluators (`synth evaluators`, also seed step 5b).** The kit populates the
-project's Evaluators page programmatically via the unstable evaluator API and scopes
-each to the suite with a `target=experiment` evaluation rule:
-- **3 code evaluators** (`numeric_accuracy`, `citation_format`,
-  `escalation_correctness`) — `type=code`, deterministic Python mirroring
-  `synth.grading`, **no LLM connection needed**. Code rules carry no variable mapping
-  (the server auto-fills it from `ctx`).
-- **2 LLM-as-judge evaluators** (`groundedness`, `citation_coverage`) — reference-free,
-  created as definitions against the project's Anthropic connection (the
-  `modelConfig.provider` must match the connection's exact casing, `"Anthropic"`; the
-  claimed model is `certification.judge_model`). They are scoped to **both surfaces**:
-  - `target=experiment` (sampling 1.0) — every certification run, like the code
-    evaluators;
-  - `target=observation` (low sampling) — the SAME judges monitoring live copilot
-    traffic, the continuous-monitoring half of the story. The rule selects the turn's
-    **root observation** (`traceName = copilot-turn` + `isRootObservation = true`) — the
-    one observation carrying the analyst's question and the copilot's answer together.
-    Under v4 an observation evaluator cannot read siblings or children, so every variable
-    it reads has to already be on its target. Sampling comes from
-    `certification.trace_judge_sampling`, but the rule is **always created disabled**;
-    see the cutover below. The code evaluators stay experiment-only: they compare against
-    `expected_output`, a source only `target=experiment` exposes, and live traffic has no
-    ground-truth label. (`experiment` *is* v4's successor to the legacy `dataset` target,
-    so that is a migrated rule, not an unmigrated one.)
+**Evaluators (`synth evaluators`, also seed step 5b).** Provisioning and the
+workbench use the supported `/api/public/v2/evaluators` and
+`/api/public/v2/evaluation-rules` APIs. All five definitions can be saved without
+an LLM connection:
 
-**The v4 evaluator cutover (`synth.workbench.cutover`).** Evaluation rules are project
-state, not repo state, so a `seed` meets whatever the previous version of this kit left in
-the project. The migration is therefore a lifecycle, not an edit: `seed` (and `synth
-evaluators`) **provisions** the observation successor disabled and **retires** any rule the
-project still holds on a target v4 no longer serves — including this kit's own pre-v4 live
-rule, which matched `type = GENERATION` and so scored the planning generation *and* the
-answer generation of every turn. Retirement is `enabled=false`, never a delete, so rolling
-back is switching one rule back on and the other off. Turning the successor on is a
-separate, deliberate step — `synth evaluators --enable-live` — which compares the
-successor's scores with the legacy rule's on newly ingested data first and refuses when the
-successor has not scored anything yet.
+- `numeric_accuracy`, `citation_format`, `escalation_correctness`: categorical
+  pass/fail Python checks mirroring `synth.grading`.
+- `groundedness`, `citation_coverage`: numeric 0–1 judges with the MRM rubrics.
+  New judges use the **project default evaluation model**. Without it, Langfuse
+  saves the definitions paused; the command and workbench display the reason.
+  Configure the model in Langfuse project settings to make them runnable.
+  Provisioning never creates or overwrites an LLM connection. Existing explicit
+  evaluator model selections are retained when a definition changes.
 
-**Standing risk: the evaluator API is marked `unstable` by Langfuse.**
-`/api/public/unstable/evaluators` and `/api/public/unstable/evaluation-rules` are the only
-programmatic way to provision managed evaluators, and the only surface that still reads
-back a project's pre-v4 rule targets — so this kit depends on an API that may be reshaped
-without a major version. The dependency is accepted and contained rather than designed
-away: every call degrades to a logged note plus the UI instructions in the runbook, and
-none of it can abort a `seed`. Expect a change there rather than treating one as an outage.
+**Reruns and ownership.** Lists are read completely using cursor pagination.
+A unique matching evaluator can be adopted, including a manually created one.
+Changes use its stable ID; unchanged definitions create no new versions. Duplicate
+names are reported for operator resolution, with no arbitrary selection. Run one
+provisioning command per project at a time: the API has no unique-name or create
+idempotency constraint. A failed create is not blindly retried; the next run
+inventories the project before resuming.
+
+Certification rules select the configured dataset's v2 ID **and**
+`isExperimentItemRootSpan = true`, so code checks receive experiment expected
+output. They default to sampling 1.0. Live judge rules select `traceName` and
+observation `name` equal to `copilot-turn`, plus `isRootObservation = true`.
+They retain `certification.trace_judge_sampling` and start **disabled**. Existing
+operator activation, sampling and unrelated assignments are preserved.
+
+**Legacy rules.** Stable rules use `wb-<metric>-experiments-v2` and
+`wb-<metric>-observations-v2`. Recognised kit predecessors (`-experiments`,
+`-observations`, `-traces`) are retained until the replacement's configuration and
+stable evaluator assignment have been read back and validated. Activation and
+sampling carry over from an unambiguous predecessor. Retirement only sets
+`enabled=false`; unrelated or shared rules are left alone. Named-child legacy
+mappings need operator review. No rules, evaluators or scores are deleted.
+The retained configuration supports audit/rollback planning; legacy trace/dataset
+rules cannot be re-enabled through the stable API.
+
+`synth evaluators --enable-live` remains the deliberate activation step for new
+live rules, after score comparison on new traffic. Ordinary provisioning performs
+no trial evaluation, backfill, Spool generation or Spool import. Authentication,
+rate limiting, temporary failures and an unavailable stable API produce distinct
+messages. An unavailable endpoint calls for checking the URL, proxy and server
+version; it is not assumed to mean an older self-hosted deployment.
+
+API contracts checked against the [official Langfuse API reference](https://api.reference.langfuse.com/)
+and [OpenAPI source](https://github.com/langfuse/langfuse/blob/main/web/public/generated/api/openapi.yml)
+on 2026-09-15. The existing core pin is v4.1.1; contract tests ran with Python SDK
+4.15.3. This repair does not change seeded metric values or dataset history.
 
 Evaluation rules are **live-ingestion only — they never backfill**, so scoping a rule
 (experiment or observation) fires **zero** evaluations on the already-seeded, backdated

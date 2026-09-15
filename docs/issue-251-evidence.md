@@ -21,11 +21,13 @@ previously created datasets. Certification and the default workbench task recons
 the question from dataset metadata, with support for older structured inputs. The
 workbench task uses the current `llm` client argument.
 
-Both managed judges map `input` and `output` on the linked observation. Rules using
-the `experimentItemMetadata` variable now map it to ordinary observation `metadata`,
-where the complete question is available. Existing rules get this mapping when
-`ensure_rule` reconciles them; deployments must run their normal evaluator setup to
-update such rules.
+Both managed judges map `input` and `output` on the linked observation through their
+stable evaluator definitions. Experiment rules select only experiment item roots and
+inherit those mappings. Explicit operator mappings using `experiment_item_metadata`
+are reported for review because that propagated copy omits the full question. They
+are not silently accepted, rewritten or retired: the operator can select ordinary
+observation `metadata` or full `input`. This preserves the stable-API reconciliation
+and operator-ownership rules landed in #250.
 
 No filing text is shortened, SDK validation is unchanged, and warnings are not muted.
 The distinction follows the supported [Langfuse metadata API](https://langfuse.com/docs/observability/features/metadata).

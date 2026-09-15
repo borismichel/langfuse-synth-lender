@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
 import uuid
 from datetime import datetime
 from types import SimpleNamespace
@@ -144,8 +143,7 @@ def test_sdk_reproduces_dropped_filing_copy_through_hosted_experiment(service, p
     assert json.loads(selected.attributes[QUESTION]) == question
 
 
-def test_seed_retains_complete_evidence_without_dropped_attributes(service, plan, caplog,
-                                                                 monkeypatch):
+def test_seed_retains_complete_evidence_without_dropped_attributes(service, plan, caplog):
     cfg, cert = plan
     create_suite(service.lf, cfg, cert)
     with caplog.at_level(logging.WARNING, logger="langfuse"):
@@ -153,22 +151,6 @@ def test_seed_retains_complete_evidence_without_dropped_attributes(service, plan
     assert not [r.message for r in caplog.records if "Dropping" in r.message]
     spans = {f"{s.context.span_id:016x}": s for s in service.exporter.get_finished_spans()}
     assert len(service.links) == 216
-    rules = []
-    from synth.workbench import judges
-
-    def request(method, url, **kwargs):
-        rules.append(kwargs["json"])
-        return SimpleNamespace(status_code=200, json=lambda: kwargs["json"])
-
-    monkeypatch.setattr(judges.requests, "request", request)
-    for name, template in judges.JUDGE_TEMPLATES.items():
-        variables = list(dict.fromkeys(re.findall(r"\{\{(\w+)\}\}", template["prompt"])))
-        _, error = judges.ensure_rule(cfg, {"name": name, "variables": variables}, ["ds-cert"])
-        assert not error
-        assert rules[-1]["mapping"] == [{"variable": "input", "source": "input"},
-                                         {"variable": "output", "source": "output"}]
-        assert rules[-1]["filter"][0]["value"] == ["ds-cert"]
-
     for link in service.links:
         item = next(it for it in cert.suite if it.item_id == link["datasetItemId"])
         selected = spans[link["observationId"]]

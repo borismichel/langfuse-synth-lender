@@ -12,7 +12,7 @@ cutover (portal #211) moved them into :mod:`langfuse_synth_core.target` beside t
 that does the probing — one implementation, so the two kits cannot drift and a third
 inherits it. This module is the kit's name for it; every call site is unchanged.
 
-The kit's *other* capability question — **does this host expose the unstable evaluator
+The kit's *other* capability question — **does this host expose the stable evaluator
 API?** — is not here and never was: it is probed at its own call site
 (``workbench.judges.list_judges``) because a newer self-hosted host should take the API path
 whatever its URL says, and when it is absent the workbench degrades to logged UI

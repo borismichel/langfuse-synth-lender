@@ -133,6 +133,8 @@ def test_provisioning_creates_all_five_without_a_model_and_workbench_reads_them(
         if e["type"] == "llm_as_judge":
             assert e["outputDefinition"]["minValue"] == 0
             assert e["outputDefinition"]["maxValue"] == 1
+            assert e["variableMapping"] == [{"variable": "input", "source": "input"},
+                                             {"variable": "output", "source": "output"}]
         else:
             assert 'data_type="CATEGORICAL"' in e["sourceCode"]
             assert '"pass" if ok else "fail"' in e["sourceCode"]
@@ -141,6 +143,7 @@ def test_provisioning_creates_all_five_without_a_model_and_workbench_reads_them(
         if "datasetId" in cols:
             assert cols["datasetId"] == ["ds-cert"]
             assert cols["isExperimentItemRootSpan"] is True
+            assert all(a["variableMapping"] is None for a in rule["evaluatorAssignments"])
         else:
             assert not rule["enabled"]
             assert cols["isRootObservation"] is True
@@ -375,3 +378,16 @@ def test_foreign_assignments_cannot_hide_an_ambiguous_successor_during_retiremen
     output = provision()
     assert "ambiguous" in output
     assert old["enabled"]
+
+
+@pytest.mark.parametrize("predecessor", [False, True])
+def test_filing_metadata_mappings_require_review_without_rewriting_operator_rules(api, predecessor):
+    provision()
+    rule = (add_predecessor(api) if predecessor else
+            next(r for r in api.rules if "groundedness-experiments" in r["name"]))
+    rule["evaluatorAssignments"][0]["variableMapping"] = [
+        {"variable": "input", "source": "experiment_item_metadata", "jsonPath": "$.analyst_question"}]
+    before = deepcopy(rule)
+    output = provision()
+    assert "filing evidence" in output and "observation metadata" in output
+    assert rule == before

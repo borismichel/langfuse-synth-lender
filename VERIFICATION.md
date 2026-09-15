@@ -10,6 +10,9 @@ synth verify --config config/demo.yaml
 ```
 
 Asserts, against the live project:
+- **Filing evidence** — `run_filing_evidence` compares every seeded experiment's linked
+  observation input and structured question to its dataset item, independently of scores.
+  See [the SDK reproduction and evidence checks](docs/issue-251-evidence.md).
 - **Suites** — all three datasets exist with the configured item counts; curated items
   carry `sourceTraceId` links.
 - **Flagged reserved** — both flagged traces exist, are NOT in any suite, and carry an

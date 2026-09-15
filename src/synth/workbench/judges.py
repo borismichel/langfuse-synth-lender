@@ -298,6 +298,13 @@ def get_rule(cfg: Config, rule_id: str) -> tuple[dict | None, str]:
     return _read(cfg.target.base_url, f"{RULES_PATH}/{quote(rule_id, safe='')}")
 
 
+def _filing_mapping_error(mappings: list[dict] | None) -> str:
+    if any(m.get("source") == "experiment_item_metadata" for m in mappings or []):
+        return ("propagated experiment metadata omits full filing evidence; review the mapping "
+                "to use observation metadata or input; operator rule left unchanged")
+    return ""
+
+
 def successor_assignment(judge: dict, predecessor: dict) -> tuple[dict | None, str]:
     """Preserve explicit mappings where their source exists on the new root."""
     assignments = predecessor.get("evaluatorAssignments", [])
@@ -306,6 +313,8 @@ def successor_assignment(judge: dict, predecessor: dict) -> tuple[dict | None, s
     mappings = assignments[0].get("variableMapping")
     if judge["type"] == "code":
         return {"evaluatorId": judge["id"], "variableMapping": None}, ""
+    if err := _filing_mapping_error(mappings):
+        return None, err
     converted = []
     for mapping in mappings or []:
         if mapping.get("mappingType") == "legacy":
@@ -357,6 +366,10 @@ def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str], *,
         assignments = current.get("evaluatorAssignments", [])
         if not any(a.get("evaluatorId") == judge["id"] for a in assignments):
             return None, f"{name}: assigned to another evaluator; left unchanged"
+        for assignment in assignments:
+            if assignment.get("evaluatorId") == judge["id"]:
+                if err := _filing_mapping_error(assignment.get("variableMapping")):
+                    return None, f"{name}: {err}"
         # Preserve unrelated assignments and rule-specific operator mappings. The
         # kit repairs its selectors only; evaluator defaults supply its own mappings.
         fields = {"filter": body["filter"]} if current.get("filter") != body["filter"] else {}

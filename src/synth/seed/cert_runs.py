@@ -26,6 +26,7 @@ import requests
 
 from ..agent import answer_deterministic
 from ..content import answer_messages
+from ..experiments import run_experiment
 from ..grading import grade, item_passes
 from ..models import AnalystQuestion
 from .certification import CertRunPlan
@@ -138,7 +139,7 @@ def seed_experiment_runs(cfg, lf, cert, log: Callable[[str], None] = print) -> i
     for run in cert.runs:
         error_map = {it.item_id: it.run_errors.get(run.key) for it in cert.suite}
         by_id = {ri.item.item_id: ri for ri in run.items}
-        dataset.run_experiment(
+        run_experiment(lf, dataset,
             name=run.run_name,
             description=run.description,
             metadata={"model": run.model, "verdict": run.verdict,

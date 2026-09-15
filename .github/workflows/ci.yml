@@ -25,13 +25,18 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Keep the #251 reproduction on the SDK from the reported release, plus
+        # the version a fresh image resolves from the supported runtime range.
+        sdk: ["langfuse==4.14.4", "langfuse>=4.14,<5"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"  # matches the runtime image (Dockerfile: python:3.12-slim)
       - name: Install (runtime + dev + playground, from the pinned core)
-        run: pip install -e '.[dev,playground]'
+        run: pip install -e '.[dev,playground]' '${{ matrix.sdk }}'
       - name: Test (spool-determinism golden + presenter-visible UI goldens + unit suite)
         run: pytest -q
       # The Contract as executable checks (portal #198). `--advisory` covers this kit's remaining convergence debt (the target companion

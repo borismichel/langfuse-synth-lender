@@ -9,6 +9,8 @@ Asserts:
   real),
 - each run item carries a prompt-linked ``answer`` generation (references the production
   prompt) with a real token/cost column,
+- each experiment's linked observation retains the full dataset input and structured
+  filing evidence, checked separately from its scores,
 - run-level aggregate scores exist and candidate B has the lowest ``rate_numeric_accuracy``,
 - the golden traces exist and are tagged ``golden``,
 - the pending flagged trace exists, carries the analyst's down-vote + comment, and is
@@ -37,6 +39,7 @@ from dataclasses import dataclass, field
 from langfuse_synth_core.lfread import get_json
 
 from .config import Config
+from .models import AnalystQuestion
 from .state import RunState
 from .target import TargetProfile
 
@@ -94,8 +97,8 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
 
     # -- suite: item count + provenance --------------------------------------
     item_sources: set[str] = set()
+    items: list[dict] = []
     try:
-        items: list[dict] = []
         page = 1
         while page <= 5:
             data = get_json(base, "/api/public/dataset-items",
@@ -121,6 +124,7 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
     # run (0 items) is the API-visible symptom of a run that won't render — so we
     # assert every run carries items and a scored sample trace.
     experiments = []
+    matched = []
     try:
         # The SDK run_experiment appends a " - <timestamp>" suffix to each run name, so
         # match expected run names by PREFIX. (The runs list is also eventually consistent
@@ -153,6 +157,37 @@ def run_verify(cfg: Config, state: RunState, *, log=print) -> VerifyReport:
                    + (f"; SHORT {short}" if short else ""))
     except Exception as exc:  # noqa: BLE001
         report.add("seeded_runs", False, f"error: {exc}")
+
+    # Judge input belongs to the experiment's linked observation, not an arbitrary
+    # parent or answer generation. Scores alone cannot prove that evidence survived.
+    try:
+        sources = {item["id"]: item for item in items}
+        checked, missing_evidence = 0, []
+        for experiment in matched:
+            for item in reader.experiment_items(experiment):
+                source = sources.get(item.dataset_item_id or item.id)
+                trace = reader.trace(item.trace_id, with_scores=False) if item.trace_id else None
+                observation = next((o for o in (trace.observations if trace else [])
+                                    if o.id == item.observation_id), None)
+                if source is None or observation is None:
+                    missing_evidence.append(item.id)
+                    continue
+                source_question = AnalystQuestion.from_input(
+                    (source.get("metadata") or {}).get("analyst_question") or source["input"])
+                observed_question = (observation.metadata or {}).get("analyst_question")
+                # Older datasets used the structured question directly as input.
+                if observed_question is None and isinstance(observation.input, dict):
+                    observed_question = observation.input
+                if (observation.input != source["input"] or observed_question is None
+                        or AnalystQuestion.from_input(observed_question) != source_question):
+                    missing_evidence.append(item.id)
+                else:
+                    checked += 1
+        report.add("run_filing_evidence", bool(checked) and not missing_evidence,
+                   f"{checked} linked observations retain full input and filing evidence; "
+                   f"missing or changed: {len(missing_evidence)}")
+    except Exception as exc:  # noqa: BLE001
+        report.add("run_filing_evidence", False, f"error: {exc}")
 
     # -- run items reference the production prompt + carry cost ----------------------
     # Each run item emits a prompt-linked ``answer`` generation, so the runs reference

@@ -18,6 +18,7 @@ from typing import Callable
 
 from ..agent import answer, answer_deterministic
 from ..config import Config
+from ..experiments import question_from_item, run_experiment
 from ..grading import SCORE_NAME_FOR_CHECK, grade, item_passes
 
 
@@ -67,13 +68,12 @@ def certify(cfg: Config, model: str, *, run_name: str | None = None,
     log(f"· certifying {model} against {ds_name!r} as {name!r} "
         f"({cert.prompt_name} v{pver}) …")
 
-    def task(*args, **kwargs):
-        item = kwargs.get("item") if "item" in kwargs else (args[0] if args else None)
-        got = answer(item.input, model, live=True, lf=lf, llm=llm,
+    def task(*, item, **kwargs):
+        got = answer(question_from_item(item), model, live=True, lf=lf, llm=llm,
                      prompt_name=cert.prompt_name)
         return got.model_dump()
 
-    res = dataset.run_experiment(
+    res = run_experiment(lf, dataset,
         name=name,
         description=(f"Live certification run: model={model}, prompt={cert.prompt_name} "
                      f"v{pver}. Release = (model, prompt, params)."),

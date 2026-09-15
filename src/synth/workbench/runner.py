@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from ..config import Config
+from ..experiments import question_from_item, run_experiment
 from ..grading import item_passes
 from .links import Links
 from .registry import discover_tasks, evaluator_by_name, fingerprints
@@ -64,14 +65,13 @@ def _make_task(lf, llm, release: dict):
     tasks = [t for t in discover_tasks() if not t.error]
     task_fn = tasks[0].fn if tasks else None
 
-    def task(*args, **kwargs):
-        item = kwargs.get("item") if "item" in kwargs else (args[0] if args else None)
-        if task_fn is not None:
+    def task(*, item, **kwargs):
+        if callable(task_fn):
             return task_fn(item, model=release["model"], lf=lf, llm=llm,
                            prompt_name=release["prompt_name"])
         from ..agent import answer
 
-        return answer(item.input, release["model"], live=True, lf=lf, llm=llm,
+        return answer(question_from_item(item), release["model"], live=True, lf=lf, llm=llm,
                       prompt_name=release["prompt_name"]).model_dump()
 
     return task
@@ -125,11 +125,11 @@ def _execute(cfg: Config, spec: ExperimentSpec, run_id: str,
                                 message=f"running {target.dataset_name} ({len(items)} items)")
 
             name = f"{spec.ref}-{release['model']}"
-            res = lf.run_experiment(
+            res = run_experiment(lf, dataset,
                 name=name,
                 description=(f"Workbench spec {spec.ref} (hash {spec.spec_hash[:12]}…) — "
                              f"release {release['model']} + {rel.prompt_name} v{prompt_version}."),
-                data=items,
+                items=items,
                 task=task,
                 evaluators=evaluators,
                 metadata={"spec_ref": spec.ref, "spec_hash": spec.spec_hash,

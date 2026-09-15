@@ -21,15 +21,23 @@ import json
 import pathlib
 import re
 
+import pytest
 from langfuse_synth_core import read
 
 from synth import verify as V
 from synth.config import load_config
+from synth.content import user_turn
+from synth.models import AnalystQuestion
 from synth.state import RunState
 
 SUITE = "certification-suite"
 DATASET_ID = "ds-1"
 SYSTEM_TURN = [{"role": "system", "content": "You are an analyst copilot."}]
+QUESTION = {"case_id": "CR-test", "borrower": "Generated borrower",
+            "question": "What is operating profit?", "excerpts": [
+                {"section_id": "F-3", "title": "Income statement", "unit_note": "in EUR thousands",
+                 "lines": [["Operating profit", "(2,431)"]]}]}
+EVIDENCE_INPUT = [{"role": "user", "content": user_turn(AnalystQuestion.from_input(QUESTION))}]
 
 RUNS = [("baseline - t", "rb", 0.95), ("candidate_a - t", "ra", 0.93),
         ("candidate_b haiku - t", "rc", 0.60)]
@@ -83,10 +91,14 @@ def _answer_observation(trace_id: str, *, raw_io: bool):
            "costDetails": {"total": 0.01}}
     if trace_id == "gc":
         row["input"] = json.dumps(SYSTEM_TURN) if raw_io else SYSTEM_TURN
+    if trace_id in RUN_ITEM_TRACES:
+        row["input"] = json.dumps(EVIDENCE_INPUT) if raw_io else EVIDENCE_INPUT
+        row["metadata"] = {"analyst_question": QUESTION}
     return row
 
 
-def _install_seeded_env(monkeypatch, *, healthy_queue: bool = True) -> None:
+def _install_seeded_env(monkeypatch, *, healthy_queue: bool = True,
+                        evidence_fault: str | None = None) -> None:
     """Serve the canned seeded project as a v4 Langfuse — and only as one.
 
     Every deprecated endpoint answers a 404, so a read that silently stayed on one fails
@@ -122,7 +134,10 @@ def _install_seeded_env(monkeypatch, *, healthy_queue: bool = True) -> None:
 
         # -- endpoints the migration left alone ---------------------------
         if path == "/api/public/dataset-items":
-            return _Resp(200, {"data": [{"sourceTraceId": f"s{i}"} for i in (1, 2, 3)],
+            return _Resp(200, {"data": [{"id": f"item-{i}", "sourceTraceId": f"s{i}",
+                                        "input": EVIDENCE_INPUT,
+                                        "metadata": {"analyst_question": QUESTION}}
+                                       for i in (1, 2, 3)],
                                "meta": {"totalPages": 1}})
         if path == "/api/public/annotation-queues":
             return _Resp(200, {"data": [{"name": "certification-review", "id": "q1"}]})
@@ -144,6 +159,22 @@ def _install_seeded_env(monkeypatch, *, healthy_queue: bool = True) -> None:
             tid = params.get("traceId")
             rows = ([_answer_observation(tid, raw_io=True)]
                     if tid in RUN_ITEM_TRACES + GOLDEN_TRACES + ("fp",) else [])
+            if tid in RUN_ITEM_TRACES:
+                root = {"id": f"root-{tid}", "traceId": tid, "type": "SPAN",
+                        "name": "experiment-item-task", "input": json.dumps(EVIDENCE_INPUT),
+                        "metadata": {"analyst_question": json.loads(json.dumps(QUESTION))}}
+                if evidence_fault == "input":
+                    root["input"] = "[]"
+                elif evidence_fault == "metadata":
+                    root["metadata"] = {}
+                elif evidence_fault in {"unit_note", "section_id", "sign"}:
+                    excerpt = root["metadata"]["analyst_question"]["excerpts"][0]
+                    if evidence_fault == "sign":
+                        excerpt["lines"][0][1] = "2,431"
+                    else:
+                        excerpt[evidence_fault] = "changed"
+                if evidence_fault != "linked_observation":
+                    rows.append(root)
             for row in rows:
                 row["tags"] = ["golden"] if tid in GOLDEN_TRACES else []
             return _Resp(200, {"data": rows, "meta": {}})
@@ -165,7 +196,8 @@ def _install_seeded_env(monkeypatch, *, healthy_queue: bool = True) -> None:
             return _Resp(200, {"data": [{"id": i, "name": n, "datasetId": DATASET_ID}
                                         for n, i, _ in RUNS], "meta": {}})
         if path == "/api/public/experiment-items":
-            return _Resp(200, {"data": [{"id": f"i{k}", "experimentId": params.get("experimentId"),
+            return _Resp(200, {"data": [{"id": f"root-{t}", "experimentItemId": f"item-{k+1}",
+                                         "experimentId": params.get("experimentId"),
                                          "traceId": t}
                                         for k, t in enumerate(RUN_ITEM_TRACES)], "meta": {}})
 
@@ -186,8 +218,17 @@ def _run() -> dict:
 ALL_CHECKS = {
     "suite_items", "seeded_runs", "run_prompt_link", "run_level_scores",
     "candidate_b_red_cells", "golden_traces", "flagged_pending", "prompt_linkage",
-    "review_queue", "score_methods",
+    "review_queue", "score_methods", "run_filing_evidence",
 }
+
+
+@pytest.mark.parametrize("fault", ["input", "metadata", "unit_note", "section_id", "sign",
+                                   "linked_observation"])
+def test_verify_rejects_missing_evidence_even_when_scores_exist(monkeypatch, fault):
+    _install_seeded_env(monkeypatch, evidence_fault=fault)
+    checks = _run()
+    assert checks["run_filing_evidence"] is False
+    assert checks["run_level_scores"] and checks["candidate_b_red_cells"]
 
 
 def test_healthy_seeded_env_passes_every_assertion(monkeypatch):

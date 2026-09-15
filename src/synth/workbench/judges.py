@@ -443,7 +443,9 @@ def ensure_rule(cfg: Config, judge: dict, dataset_ids: list[str], *,
             "metadata": "metadata",
             "expected_output": "expected_output",
             "experimentItemExpectedOutput": "expected_output",
-            "experimentItemMetadata": "experiment_item_metadata",
+            # The execution copy propagates labels only. Rich dataset metadata
+            # (including the full analyst question) lives on the linked observation.
+            "experimentItemMetadata": "metadata",
         }
         variables = judge.get("variables") or ["input", "output"]
         body["mapping"] = [{"variable": var, "source": _src.get(var, "input")}

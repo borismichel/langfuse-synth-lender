@@ -81,6 +81,15 @@ def test_live_rule_maps_every_variable_onto_the_target_observation(cfg, api):
     assert all(m["source"] in cutover.OBSERVATION_SOURCES for m in body["mapping"])
 
 
+def test_experiment_metadata_variable_reads_full_observation_metadata(cfg, api):
+    """The propagated copy omits the full question; rich-data mappings must not use it."""
+    judge = {"name": "filing-review", "type": "llm_as_judge",
+             "variables": ["experimentItemMetadata"]}
+    judges.ensure_rule(cfg, judge, ["ds-1"], target="experiment")
+    assert api[-1][2]["mapping"] == [
+        {"variable": "experimentItemMetadata", "source": "metadata"}]
+
+
 def test_successors_are_created_disabled(cfg, api):
     """AC: the successor ships disabled, is validated on newly ingested data, and is enabled
     only after its scores are compared with the legacy rule's."""

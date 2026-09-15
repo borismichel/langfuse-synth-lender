@@ -78,6 +78,7 @@ def verify_managed_evaluators(cfg: Config, *, initial: bool = False) -> list[tup
             expected = {"name": expected_name, "id": matches[0]["id"],
                         "filter": rule_filter(target, dataset_ids),
                         "sampling": 1.0 if target == "experiment" else
+                        cfg.certification.trace_judge_sampling if rule.get("enabled") else
                         max(cfg.certification.trace_judge_sampling, 0.01)}
             for key, value in expected.items():
                 if rule.get(key) != value:

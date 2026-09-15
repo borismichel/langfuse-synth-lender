@@ -37,8 +37,10 @@ def project(monkeypatch):
     return api
 
 
-def report(*, initial=False):
-    result = verify.run_verify(load_config("config/demo.yaml"), _state(),
+def report(*, initial=False, sampling=0.0):
+    cfg = load_config("config/demo.yaml")
+    cfg.certification.trace_judge_sampling = sampling
+    result = verify.run_verify(cfg, _state(),
                                initial_evaluators=initial, log=lambda _: None)
     return {c.name: c for c in result.checks}
 
@@ -68,7 +70,16 @@ def test_initial_verification_rejects_activation_but_later_checks_preserve_opera
     before = deepcopy(project.rules)
     provision()
     assert project.rules == before
-    assert report()["managed_rules"].ok
+    assert report(sampling=0.01)["managed_rules"].ok
+
+
+def test_enabled_live_rules_honor_opt_in_sampling_below_disabled_floor(project):
+    live = next(r for r in project.rules if "groundedness-observations" in r["name"])
+    live.update(enabled=True, sampling=0.005)
+    before = deepcopy(project.rules)
+    provision()
+    assert project.rules == before
+    assert report(sampling=0.005)["managed_rules"].ok
 
 
 @pytest.mark.parametrize("fault", ["root", "name", "sampling", "mapping"])

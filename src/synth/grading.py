@@ -9,7 +9,7 @@ The headline certification metrics are **reproducible code, not an LLM opinion**
 - ``abstention_correct`` — answer_type (factual / declined / abstained) matches.
 
 The managed LLM judges (``groundedness``, ``citation_coverage``) layer on top via the
-unstable evaluator API; they grade the prose, not the verdict.
+stable evaluator API; they grade the prose, not the verdict.
 """
 from __future__ import annotations
 

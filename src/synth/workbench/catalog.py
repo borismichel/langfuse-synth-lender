@@ -1,7 +1,7 @@
 """Pull the building blocks from Langfuse: prompts, datasets (+items, slice rollup),
 score configs, managed evaluators, and evaluation rules.
 
-Everything degrades gracefully: if the instance is unreachable (or the unstable
+Everything degrades gracefully: if the instance is unreachable (or the stable v2
 evaluator endpoints don't exist on this server version), the workbench still renders —
 the catalog falls back to what ``.synth_state.json`` and the deterministic plan know
 (demo resilience; flagged in the UI as "offline catalog").
@@ -14,20 +14,17 @@ from ..config import Config
 from ..state import RunState
 from .reads import probe_json as _get
 
-# Every endpoint below — prompts, datasets, dataset items, score configs, the unstable
-# evaluator surface — survived the v4 migration untouched, so the read seam does not model
-# them and `lfread.get_json` is the right primitive: it carries the shared auth and the
-# Retry-After-aware backoff, which this module used to re-implement with a bare
-# `requests.get` and no retry at all (portal #211). It reads through `reads.probe_json`,
-# which asks once, because the whole module is built to degrade to `offline_catalog`.
+# Catalog reads make one attempt per page so an unavailable host cannot keep the
+# workbench waiting through a long retry loop. Stable evaluator cursor pagination
+# is shared with provisioning; the remaining catalog resources use numbered pages.
 
 
-def _paged(base: str, path: str, params: dict | None = None, max_pages: int = 10) -> list[dict]:
+def _paged(base: str, path: str, params: dict | None = None, max_pages: int | None = None) -> list[dict]:
     """Every row of a numbered-page endpoint. All of these survived the v4 migration and
     still answer `meta.totalPages`; the cursor-paginated v4 APIs are the read seam's."""
     rows: list[dict] = []
     page = 1
-    while page <= max_pages:
+    while max_pages is None or page <= max_pages:
         data = _get(base, path, {**(params or {}), "limit": 100, "page": page})
         batch = data.get("data", [])
         rows.extend(batch)
@@ -54,9 +51,9 @@ class Catalog:
     prompts: list[dict] = field(default_factory=list)       # {name, versions:[{version, labels}]}
     datasets: list[DatasetInfo] = field(default_factory=list)
     score_configs: list[dict] = field(default_factory=list)  # {id, name, dataType}
-    judges: list[dict] = field(default_factory=list)         # unstable evaluators (incl. managed)
-    rules: list[dict] = field(default_factory=list)          # unstable evaluation rules
-    judges_api: bool = False                                 # unstable endpoints available?
+    judges: list[dict] = field(default_factory=list)         # stable v2 evaluators (incl. managed)
+    rules: list[dict] = field(default_factory=list)          # stable v2 evaluation rules
+    judges_api: bool = False                                 # stable v2 endpoints available?
 
     def dataset(self, name: str) -> DatasetInfo | None:
         return next((d for d in self.datasets if d.name == name), None)
@@ -83,16 +80,13 @@ def fetch_catalog(cfg: Config, *, with_items: bool = True) -> Catalog:
                              for r in _paged(base, "/api/public/score-configs")]
     except Exception:  # noqa: BLE001
         pass
-    # unstable evaluator surface — optional by server version
-    try:
-        cat.judges = _get(base, "/api/public/unstable/evaluators").get("data", [])
-        cat.judges_api = True
-        try:
-            cat.rules = _get(base, "/api/public/unstable/evaluation-rules").get("data", [])
-        except Exception:  # noqa: BLE001
-            pass
-    except Exception:  # noqa: BLE001 — older self-hosted: judges stay UI-managed
-        cat.judges_api = False
+    from .judges import list_judges, list_rules
+
+    cat.judges, cat.judges_api, judge_error = list_judges(base)
+    cat.rules, rules_available, rule_error = list_rules(base)
+    if judge_error or rule_error:
+        cat.error = "; ".join(e for e in (cat.error, judge_error, rule_error) if e)
+    cat.judges_api = cat.judges_api and rules_available
     return cat
 
 

@@ -13,9 +13,9 @@ than showing it at once (portal #211). One attempt, said once, in the place the 
 reads through.
 
 The split below is the read seam's: entities Langfuse remapped for v4 (traces, observations,
-scores, experiments) go through :func:`probe_reader`; the endpoints the migration left
-alone — prompts, datasets, dataset items, score configs, annotation queues, the unstable
-evaluator surface — go through :func:`probe_json`.
+scores, experiments) go through :func:`probe_reader`; other endpoints — prompts,
+datasets, dataset items, score configs, annotation queues and the stable evaluator
+surface — go through :func:`probe_json`.
 """
 from __future__ import annotations
 

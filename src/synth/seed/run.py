@@ -130,7 +130,7 @@ def run_seed(cfg: Config, *, dry_run: bool = False, persist: bool = True,
         n = seed_experiment_runs(cfg, lf, plan.cert, log=log)
         log(f"✓ seeded {n} experiment runs via run_experiment")
 
-    # -- 5b. managed evaluators (Cloud / newer self-hosted with the unstable API) ---
+    # -- 5b. managed evaluators (stable v2 API) ---
     # ORDERING INVARIANT (do NOT move before step 5): judges + their experiment-target
     # evaluation rules must be created AFTER the experiment runs are seeded and flushed.
     # Rules are live-ingestion only and never backfill, so a rule created here cannot
@@ -218,129 +218,83 @@ def _spool_all(cfg: Config, plan: Plan, ing: Ingestor) -> None:
 
 
 def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> None:
-    """Populate the project's Evaluators section, scoped to the suite's experiment runs:
-    - **code evaluators** (numeric_accuracy, citation_format, escalation_correctness) —
-      deterministic, **no LLM connection needed**, created always;
-    - **LLM-as-judge** (groundedness, citation_coverage) — need an LLM connection
-      (ANTHROPIC_API_KEY upserts one), else logged and skipped;
-    and then retires anything the project still carries from before v4 (see
-    :mod:`synth.workbench.cutover` for the lifecycle this is step one and two of).
-    Best-effort: the unstable evaluator API is Cloud / newer-self-hosted only; anything
-    missing is logged, never fatal."""
+    """Provision definitions and future-ingestion rules after seeded runs are flushed.
+
+    All five definitions are independent of model credentials. Langfuse may pause
+    a judge until the operator configures a default evaluation model.
+    """
     from ..workbench.cutover import retire_legacy
     from ..workbench.judges import (
-        CODE_EVALUATORS,
-        JUDGE_TEMPLATES,
-        ensure_code_evaluator,
-        ensure_judge,
-        ensure_llm_connection,
-        ensure_rule,
-        list_judges,
+        CODE_EVALUATORS, JUDGE_TEMPLATES, certification_dataset_ids,
+        ensure_code_evaluator, ensure_judge, ensure_rule, judge_status, list_judges,
     )
 
-    from ..target import TargetProfile
-    from ..workbench.reads import probe_json
-
-    base = cfg.target.base_url
-    profile = TargetProfile.detect(base)
-    _, available, probe_err = list_judges(base)
-    log(f"· evaluators: target = {profile.label}; unstable evaluator API "
-        f"{'present → creating programmatically' if available else 'absent'}")
-    if probe_err:
-        # Not the capability answer: the host is there and busy or unwell. Saying "absent"
-        # here would send an operator to fix an old server that is not old (Cloud's 429 on
-        # these reads is the case seen in the wild), and would let the retirement below
-        # conclude there is nothing to retire.
-        log(f"· evaluators: could not read the evaluator API ({probe_err}) — nothing "
-            "provisioned or retired; re-run `synth evaluators` when the host answers")
+    _, available, probe_err = list_judges(cfg.target.base_url)
+    if probe_err or not available:
+        log(f"· evaluators: could not read the evaluator API ({probe_err or 'stable API unavailable'}) — "
+            "nothing provisioned or retired; re-run `synth evaluators` when the host answers")
         return
-    if not available:
-        log("· evaluators: unstable evaluator API not present (older self-hosted) "
-            "— create evaluators in the UI per DEMO_SCRIPT (skipped)")
-        return
-    ds_ids = []
-    try:
-        data = probe_json(base, "/api/public/v2/datasets", {"limit": 100}).get("data", [])
-        ds_ids = [d["id"] for d in data
-                  if d.get("name") == cfg.certification.dataset.name and d.get("id")]
-    except Exception:  # noqa: BLE001
-        pass
+    ds_ids, dataset_error = certification_dataset_ids(cfg)
+    if dataset_error:
+        log(f"· evaluators: {dataset_error}")
 
     # 1. code evaluators — no LLM connection required
     code_made, notes = 0, []
     for name, source in CODE_EVALUATORS.items():
         ev, err = ensure_code_evaluator(cfg, name, source)
-        if err:
-            notes.append(f"{name}: {err[:90]}")
+        if ev is None:
+            notes.append(f"{name}: {err}")
             continue
         code_made += 1
         if ds_ids:
             _r, rerr = ensure_rule(cfg, ev, ds_ids)
             if rerr:
-                notes.append(f"{name} rule: {rerr[:90]}")
+                notes.append(f"{name} rule: {rerr}")
     log(f"✓ code evaluators: {code_made}/{len(CODE_EVALUATORS)} created"
         + (f" (notes: {'; '.join(notes)})" if notes else ""))
 
-    # 2. LLM-as-judge evaluators — need an LLM connection. We create the evaluator
-    # definitions AND scope an evaluation rule to the suite (target=experiment). The
-    # rule is SAFE w.r.t. "no real judge runs now": evaluation rules are live-ingestion
-    # only — they do NOT backfill the already-seeded experiment runs, so creating one
-    # fires zero judge calls today. It simply arms FUTURE experiment runs (e.g. a live
-    # `synth certify`). The groundedness/citation_coverage SCORES on the seeded runs are
-    # already present (deterministic, same score vocabulary), so the Evaluators page
-    # shows the judges as governed objects with matching historical scores.
-    conn_ok, conn_msg = ensure_llm_connection(cfg)
-    if not conn_ok and "in env" in conn_msg:
-        # No key in env, but a connection may already be configured in project settings.
-        try:
-            conns = probe_json(base, "/api/public/llm-connections", {"limit": 50}).get("data", [])
-        except Exception:  # noqa: BLE001
-            conns = []
-        if conns:
-            conn_msg = f"using existing project connection(s): {[c.get('provider') for c in conns]}"
-    log(f"· LLM connection: {conn_msg}")
+    # 2. Definitions use the project's default evaluation model. Provisioning never
+    # creates or overwrites provider connections, even when API keys exist in env.
     judge_made, jnotes = 0, []
     for name in JUDGE_TEMPLATES:
         judge, err = ensure_judge(cfg, name)
-        if err:
-            jnotes.append(f"{name}: {err[:90]}")
+        if judge is None:
+            jnotes.append(f"{name}: {err}")
             continue
         judge_made += 1
+        log(f"· {name}: {judge_status(judge)}")
         if ds_ids:
             _rule, rerr = ensure_rule(cfg, judge, ds_ids)  # experiment, sampling 1.0
             if rerr:
-                jnotes.append(f"{name} exp-rule: {rerr[:80]}")
+                jnotes.append(f"{name} exp-rule: {rerr}")
         # Live monitoring with the SAME judge, now scoped to the copilot turn's ROOT
-        # observation (portal #212). Always created DISABLED: under v4 a successor is
-        # validated on newly ingested data and compared with its predecessor before it is
-        # switched on, and `synth evaluators --enable-live` is where that happens. Rules
-        # never backfill the backdated seed either way, so this fires zero judge calls.
+        # observation. New live rules start disabled; an existing operator activation
+        # is preserved during migration. No rules backfill the backdated seed.
         s = cfg.certification.trace_judge_sampling
         _trule, trerr = ensure_rule(cfg, judge, ds_ids, target="observation",
-                                    sampling=max(s, 0.01), enabled=False)
+                                    sampling=s, enabled=False)
         if trerr:
-            jnotes.append(f"{name} observation-rule: {trerr[:80]}")
+            jnotes.append(f"{name} observation-rule: {trerr}")
     if judge_made:
         s = cfg.certification.trace_judge_sampling
         nxt = (f"`synth evaluators --enable-live` turns them on @ {s:.0%} sampling"
                if s > 0 else
                "set certification.trace_judge_sampling > 0 and run "
                "`synth evaluators --enable-live` to opt in")
-        log(f"✓ LLM judges: {judge_made}/{len(JUDGE_TEMPLATES)} created + scoped to "
-            "experiments (1.0) and to the turn's root observation (created DISABLED); "
+        log(f"✓ LLM judges: {judge_made}/{len(JUDGE_TEMPLATES)} definitions available; experiment rules requested at 1.0; "
+            "live root-observation rules created DISABLED by default; "
             f"rules never backfill, so the seed triggers zero judge runs — {nxt}"
             + (f" (notes: {'; '.join(jnotes)})" if jnotes else ""))
     else:
         log("· LLM judges: not created (" + ("; ".join(jnotes) or "unknown")
-            + ") — add an LLM connection (ANTHROPIC_API_KEY or project settings) and re-run `synth evaluators`")
+            + ") — resolve the errors above and re-run `synth evaluators`")
 
-    # 3. Retire whatever this project still carries from before v4: a rule on a target v4
-    # no longer serves, or this kit's own pre-v4 live rule. Disabled, never deleted — the
-    # row keeps its configuration and its scores, so a rollback is one PATCH back.
-    retired, rnotes = retire_legacy(cfg)
+    # 3. Retire only recognised kit predecessors after replacement validation.
+    # Keep the previous configuration and scores; unrelated rules are untouched.
+    retired, rnotes = retire_legacy(cfg, dataset_ids=ds_ids)
     if retired:
         log(f"✓ legacy evaluation rules retired (disabled, not deleted): {', '.join(retired)}"
-            " — re-enable in the UI to roll back")
+            " — previous configuration retained for audit/rollback")
     if rnotes:
         log(f"· legacy rule retirement: {'; '.join(rnotes)}")
 

@@ -9,6 +9,18 @@ API-checkable parts; the UI checks take ~3 minutes.
 synth verify --config config/demo.yaml
 ```
 
+For a **fresh deployment**, add `--initial-evaluators` (the portal pipeline does
+this automatically). This additionally checks safe initial rule activation. After
+an operator deliberately changes activation, omit it for ordinary verification.
+
+The independent `managed_evaluators` and `managed_rules` checks require all five
+kit definitions and all seven rules, read back by stable ID with the intended
+score scales, assignments, mappings, filters and sampling. `managed_runnability`
+explicitly reports saved judges blocked by a missing model. A complete disabled
+demo configuration does not mean paid evaluation is runnable. Recover with
+`synth evaluators --config <same-config>`; never re-import the Spool for this.
+See [the recovery and ownership contract](README.md#development-and-running-outside-the-depot).
+
 Asserts, against the live project:
 - **Filing evidence** — `run_filing_evidence` compares every seeded experiment's linked
   observation input and structured question to its dataset item, independently of scores.

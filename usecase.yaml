@@ -105,7 +105,7 @@ pipeline:
     run: "synth evaluators --config {config}"
     fatal: false
   - id: verify
-    run: "synth verify --config {config}"
+    run: "synth verify --config {config} --initial-evaluators"
     fatal: true
   - id: memo
     # Renders CERT_MEMO.md (the validation dossier) from post-seed run state.

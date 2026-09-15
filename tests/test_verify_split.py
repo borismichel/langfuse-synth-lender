@@ -208,6 +208,15 @@ def _install_seeded_env(monkeypatch, *, healthy_queue: bool = True,
                         lambda base, path, params=None, *, throttle=0.0:
                         handler("GET", f"{base}{path}", params=params).json())
     monkeypatch.setattr(V.time, "sleep", lambda _s: None)
+    # The complete project includes managed configuration, separately from scores.
+    import requests
+    from langfuse_synth_core import lfread
+    from test_stable_evaluator_api import LangfuseAPI, provision
+
+    managed = LangfuseAPI()
+    monkeypatch.setattr(lfread, "request_retry", managed.request)
+    monkeypatch.setattr(requests, "request", managed.request)
+    provision()
 
 
 def _run() -> dict:
@@ -219,6 +228,7 @@ ALL_CHECKS = {
     "suite_items", "seeded_runs", "run_prompt_link", "run_level_scores",
     "candidate_b_red_cells", "golden_traces", "flagged_pending", "prompt_linkage",
     "review_queue", "score_methods", "run_filing_evidence",
+    "managed_evaluators", "managed_rules", "managed_runnability",
 }
 
 

@@ -264,7 +264,8 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
         judge_made += 1
         log(f"· {name}: {judge_status(judge)}")
         if ds_ids:
-            _rule, rerr = ensure_rule(cfg, judge, ds_ids)  # experiment, sampling 1.0
+            _rule, rerr = ensure_rule(cfg, judge, ds_ids,
+                                     enabled=judge.get("status") == "active")
             if rerr:
                 jnotes.append(f"{name} exp-rule: {rerr}")
         # Live monitoring with the SAME judge, now scoped to the copilot turn's ROOT
@@ -272,7 +273,7 @@ def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> Non
         # is preserved during migration. No rules backfill the backdated seed.
         s = cfg.certification.trace_judge_sampling
         _trule, trerr = ensure_rule(cfg, judge, ds_ids, target="observation",
-                                    sampling=s, enabled=False)
+                                    sampling=max(s, 0.01), enabled=False)
         if trerr:
             jnotes.append(f"{name} observation-rule: {trerr}")
     if judge_made:

@@ -286,3 +286,50 @@ def test_verify_names_the_v4_read_apis_in_its_log(monkeypatch):
     lines: list[str] = []
     V.run_verify(load_config("config/demo.yaml"), _state(), log=lines.append)
     assert any("v4 read APIs" in line for line in lines), lines
+
+
+def test_slow_filing_read_emits_progress_before_it_returns(monkeypatch):
+    import threading
+    _install_seeded_env(monkeypatch)
+    original = read.request_retry
+    heartbeat = threading.Event()
+    lines = []
+    stalled = False
+    def log(line):
+        lines.append(line)
+        if 'still verifying' in line:
+            heartbeat.set()
+    def slow(method, url, **kwargs):
+        nonlocal stalled
+        if not stalled and (kwargs.get('params') or {}).get('traceId') == 't1':
+            stalled = True
+            assert heartbeat.wait(1), 'silent during an in-flight evidence read'
+        return original(method, url, **kwargs)
+    monkeypatch.setattr(read, 'request_retry', slow)
+    monkeypatch.setattr(V, 'PROGRESS_INTERVAL_SECONDS', 0.02, raising=False)
+    result = V.run_verify(load_config('config/demo.yaml'), _state(), log=log)
+    assert result.ok
+    assert stalled
+    assert any('filing evidence' in line for line in lines)
+    assert any('elapsed=' in line for line in lines)
+
+
+def test_repeated_evidence_reads_are_cached_without_skipping_items(monkeypatch):
+    _install_seeded_env(monkeypatch)
+    original = read.request_retry
+    evidence_reads = []
+    experiment_reads = []
+    def record(method, url, **kwargs):
+        params = kwargs.get('params') or {}
+        if params.get('traceId') in RUN_ITEM_TRACES:
+            evidence_reads.append(params['traceId'])
+        if url.endswith('/api/public/experiment-items'):
+            experiment_reads.append(params)
+        return original(method, url, **kwargs)
+    monkeypatch.setattr(read, 'request_retry', record)
+    result = V.run_verify(load_config('config/demo.yaml'), _state(), log=lambda _: None)
+    checks = {c.name: c for c in result.checks}
+    assert checks['run_filing_evidence'].ok
+    assert '9 linked observations' in checks['run_filing_evidence'].detail
+    assert sorted(evidence_reads) == sorted(RUN_ITEM_TRACES)
+    assert len(experiment_reads) == 3

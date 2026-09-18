@@ -33,7 +33,10 @@ shared auth and the Retry-After-aware backoff.
 """
 from __future__ import annotations
 
+import threading
 import time
+from collections.abc import Callable
+from functools import lru_cache
 from dataclasses import dataclass, field
 
 from langfuse_synth_core.lfread import get_json
@@ -54,9 +57,12 @@ class Check:
 @dataclass
 class VerifyReport:
     checks: list[Check] = field(default_factory=list)
+    log: Callable[[str], None] | None = field(default=None, repr=False)
 
     def add(self, name: str, ok: bool, detail: str) -> None:
         self.checks.append(Check(name, ok, detail))
+        if self.log is not None:
+            self.log(f"  [{'PASS' if ok else 'FAIL'}] {name}: {detail}")
 
     @property
     def ok(self) -> bool:
@@ -81,8 +87,44 @@ def _costed(observation) -> bool:
     return bool(observation.total_cost or (observation.cost_details or {}).get("total"))
 
 
+PROGRESS_INTERVAL_SECONDS = 15.0
+
+
+def _flushed_print(message: str) -> None:
+    print(message, flush=True)
+
+
 def run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool = False,
-               log=print) -> VerifyReport:
+               log=_flushed_print) -> VerifyReport:
+    """Read-only verification with progress even while a read retries or stalls."""
+    started = time.monotonic()
+    done = threading.Event()
+    lock = threading.Lock()
+    stage = "resolving target"
+
+    def progress(message: str) -> None:
+        nonlocal stage
+        with lock:
+            stage = message
+            log(message)
+
+    def heartbeat() -> None:
+        while not done.wait(PROGRESS_INTERVAL_SECONDS):
+            with lock:
+                log(f"· still verifying; elapsed={time.monotonic() - started:.1f}s; {stage}")
+
+    thread = threading.Thread(target=heartbeat, daemon=True)
+    thread.start()
+    try:
+        return _run_verify(cfg, state, initial_evaluators=initial_evaluators, log=progress)
+    finally:
+        done.set()
+        thread.join()
+        log(f"· verification finished; elapsed={time.monotonic() - started:.1f}s")
+
+
+def _run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool,
+                log: Callable[[str], None]) -> VerifyReport:
     # `try_resolve`, not `resolved`: bad keys or a wrong host must come back as failed
     # checks with the reason on each line, which is what this report is for — not as a
     # traceback in place of it. Unresolved, each read below probes again inside its own
@@ -93,7 +135,17 @@ def run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool = False
     throttle = profile.post_throttle_s
     log(f"· verifying against {profile.label} ({base})"
         + (f" — cannot read it: {unreadable}" if unreadable else ""))
-    report = VerifyReport()
+    report = VerifyReport(log=log)
+    # Cache within this verification only. Every linked item is still checked;
+    # reused traces and experiment item pages no longer cost another Cloud read.
+    read_trace = lru_cache(maxsize=None)(reader.trace)
+    item_cache = {}
+
+    def experiment_items(experiment):
+        if experiment.id not in item_cache:
+            item_cache[experiment.id] = reader.experiment_items(experiment)
+        return item_cache[experiment.id]
+
     suite = state.suite
 
     # -- suite: item count + provenance --------------------------------------
@@ -147,7 +199,7 @@ def run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool = False
         want_items = suite.get("items")
         short = []  # (run, count) for runs missing items
         for experiment in matched:
-            n = len(reader.experiment_items(experiment))
+            n = len(experiment_items(experiment))
             if want_items and n != want_items:
                 short.append((experiment.name[:28], n))
         ok = not missing and not short
@@ -164,10 +216,15 @@ def run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool = False
     try:
         sources = {item["id"]: item for item in items}
         checked, missing_evidence = 0, []
+        total = sum(len(experiment_items(experiment)) for experiment in matched)
+        processed = 0
         for experiment in matched:
-            for item in reader.experiment_items(experiment):
+            for item in experiment_items(experiment):
+                log(f"· filing evidence {processed + 1}/{total}; "
+                    f"trace={item.trace_id or 'missing'}")
+                processed += 1
                 source = sources.get(item.dataset_item_id or item.id)
-                trace = reader.trace(item.trace_id, with_scores=False) if item.trace_id else None
+                trace = read_trace(item.trace_id, with_scores=False) if item.trace_id else None
                 observation = next((o for o in (trace.observations if trace else [])
                                     if o.id == item.observation_id), None)
                 if source is None or observation is None:
@@ -199,11 +256,11 @@ def run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool = False
         linked = costed = False
         detail = "no runs found"
         if experiment is not None:
-            run_items = reader.experiment_items(experiment)
+            run_items = experiment_items(experiment)
             tid = next((i.trace_id for i in run_items if i.trace_id), None)
             detail = f"run {experiment.name[:28]!r}: no item trace"
             if tid:
-                trace = reader.trace(tid, with_scores=False)
+                trace = read_trace(tid, with_scores=False)
                 for o in (trace.observations if trace else []):
                     if o.name != "answer":
                         continue
@@ -260,7 +317,7 @@ def run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool = False
     try:
         found = 0
         for g in state.golden:
-            trace = reader.trace(g["trace_id"], with_scores=False)
+            trace = read_trace(g["trace_id"], with_scores=False)
             if trace is not None and "golden" in (trace.tags or []):
                 found += 1
         ok = found == len(state.golden) and found >= 4
@@ -275,7 +332,7 @@ def run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool = False
         ok = False
         detail = "no flagged_pending in state"
         if tid:
-            exists = reader.trace(tid, with_scores=False) is not None
+            exists = read_trace(tid, with_scores=False) is not None
             downs = reader.scores(name="analyst_feedback", trace_id=tid)
             has_down = any((s.comment or "").strip() for s in downs)
             leaked = tid in item_sources
@@ -292,7 +349,7 @@ def run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool = False
         linked = chat_ok = False
         detail = "no golden trace in state"
         if tid:
-            trace = reader.trace(tid, with_scores=False)
+            trace = read_trace(tid, with_scores=False)
             for o in (trace.observations if trace else []):
                 if o.name != "answer":
                     continue
@@ -336,7 +393,7 @@ def run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool = False
         tid = state.golden_by_key("numeric_hallucination").get("trace_id")
         human = 0
         if tid:
-            trace = reader.trace(tid)
+            trace = read_trace(tid)
             human = sum(1 for s in (trace.scores if trace else [])
                         if "human annotation" in (s.comment or ""))
         present["human_annotation(on golden trace)"] = human
@@ -356,6 +413,7 @@ def run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool = False
                    f"could not verify managed configuration ({type(exc).__name__}); "
                    "check the supported API, then run `synth evaluators --config <same-config>`")
 
-    for c in report.checks:
-        log(f"  [{'PASS' if c.ok else 'FAIL'}] {c.name}: {c.detail}")
+    log(f"· read operations: traces={read_trace.cache_info().misses}, "
+        f"trace cache hits={read_trace.cache_info().hits}, "
+        f"experiment item lists={len(item_cache)}; pagination/retries remain rate-limited by the read seam")
     return report

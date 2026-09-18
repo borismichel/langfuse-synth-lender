@@ -178,3 +178,37 @@ def test_model_free_provisioning_saves_disabled_judge_rules_with_sampling_floor(
     assert "DEFAULT_MODEL_MISSING" in checks["managed_runnability"].detail
     assert "not runnable" in checks["managed_runnability"].detail
     assert all(method == "GET" for method, *_ in project.calls)
+
+
+@pytest.mark.parametrize('active_names', [('groundedness',), ('citation_coverage',),
+                                         ('groundedness', 'citation_coverage')])
+def test_saved_disabled_judges_survive_model_readiness_changes(project, active_names):
+    for evaluator in project.evaluators:
+        if evaluator['name'] in active_names:
+            evaluator.update(status='active', pausedReason=None)
+    before = deepcopy((project.evaluators, project.rules))
+    assert report(initial=True)['managed_rules'].ok
+    assert all(method == 'GET' for method, *_ in project.calls)
+    provision()
+    assert (project.evaluators, project.rules) == before
+
+
+@pytest.mark.parametrize('name,enabled,status,ok', [
+    ('numeric_accuracy', False, 'active', False),
+    ('groundedness', True, 'paused', False),
+    ('groundedness', True, 'active', True),
+    ('groundedness', False, 'active', True),
+    ('citation_coverage', 'false', 'active', False),
+])
+def test_initial_activation_controls_remain_strict(project, name, enabled, status, ok):
+    evaluator = next(e for e in project.evaluators if e['name'] == name)
+    evaluator['status'] = status
+    rule = next(r for r in project.rules if r['name'] == f'wb-{name}-experiments-v2')
+    rule['enabled'] = enabled
+    before = deepcopy((project.evaluators, project.rules))
+    check = report(initial=True)['managed_rules']
+    assert check.ok is ok
+    assert (project.evaluators, project.rules) == before
+    if not ok:
+        assert 'Provisioning preserves activation choices' in check.detail
+        assert 'Run `synth evaluators' not in check.detail

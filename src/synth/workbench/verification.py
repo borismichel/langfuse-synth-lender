@@ -64,6 +64,7 @@ def verify_managed_evaluators(cfg: Config, *, initial: bool = False) -> list[tup
     if error:
         rule_errors.append(error)
     verified = []
+    activation_errors = []
     for name in names:
         for target in (("experiment",) if name in CODE_EVALUATORS else ("experiment", "observation")):
             expected_name = rule_name(name, target)
@@ -89,18 +90,30 @@ def verify_managed_evaluators(cfg: Config, *, initial: bool = False) -> list[tup
                 rule_errors.append(f"{expected_name}: evaluatorAssignments expected only the stable ID for {name}")
             elif assignments[0].get("variableMapping") is not None:
                 rule_errors.append(f"{expected_name}: evaluatorAssignments.variableMapping expected inherited defaults (null)")
-            if initial:
-                enabled = target == "experiment" and bool(evaluator and evaluator.get("status") == "active")
-                if rule.get("enabled") is not enabled:
-                    rule_errors.append(f"{expected_name}: initial enabled expected {enabled}")
-            elif not isinstance(rule.get("enabled"), bool):
-                rule_errors.append(f"{expected_name}: enabled expected a boolean operator activation choice")
+            enabled = rule.get("enabled")
+            if not isinstance(enabled, bool):
+                activation_errors.append(f"{expected_name}: enabled expected a boolean operator activation choice")
+            elif initial:
+                # A safely disabled judge remains valid when its model becomes ready.
+                # Code experiment rules must still be active; live rules start disabled.
+                if target == "observation" and enabled:
+                    activation_errors.append(f"{expected_name}: initial live rule must be disabled")
+                elif name in CODE_EVALUATORS and not enabled:
+                    activation_errors.append(f"{expected_name}: initial code rule must be enabled")
+                elif enabled and (evaluator is None or evaluator.get("status") != "active"):
+                    activation_errors.append(f"{expected_name}: enabled rule requires an active evaluator")
             verified.append(f"{expected_name} ({rule['id']}, enabled={rule.get('enabled')})")
-    checks.append(("managed_rules", not rule_errors,
-                   "; ".join(rule_errors) + ". " + RECOVERY if rule_errors else
+    rule_detail = "; ".join(rule_errors) + ". " + RECOVERY if rule_errors else ""
+    if activation_errors:
+        rule_detail += (" " if rule_detail else "") + "; ".join(activation_errors) + (
+            ". Review rule activation in Langfuse: disable unsafe judge/live rules; "
+            "restore required code rules explicitly. Provisioning preserves activation choices. "
+            "Verification does not activate rules or configure models.")
+    checks.append(("managed_rules", not (rule_errors or activation_errors),
+                   rule_detail if rule_detail else
                    "7/7 kit rules read back with intended assignments, filters and sampling: " + "; ".join(verified)))
     paused = [f"{name}: {judge_status(e)} — not runnable" for name, e in definitions.items()
               if e.get("status") == "paused"]
     checks.append(("managed_runnability", True,
-                   "; ".join(paused) if paused else "Saved evaluators report active; rule activation is operator-controlled."))
+                   "; ".join(paused) if paused else "Saved evaluators report active (model readiness); disabled judge rules remain safe. Rule activation is operator-controlled."))
     return checks

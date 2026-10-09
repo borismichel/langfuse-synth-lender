@@ -41,7 +41,10 @@ class ObservationReceiver(requests.Session):
         super().__init__()
         self.spans = []
 
-    def post(self, url, data=None, **kwargs):
+    def request(self, method, url, data=None, **kwargs):
+        # Older exporters call Session.post(), which delegates here; newer transport
+        # versions call request() directly. Intercept both before any network access.
+        assert method.upper() == "POST"
         assert url == "http://langfuse.test/api/public/otel/v1/traces"
         payload = ExportTraceServiceRequest.FromString(data)
 

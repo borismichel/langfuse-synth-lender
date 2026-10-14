@@ -21,7 +21,7 @@ from ..content import (
 )
 from ..filings import BORROWERS, case_id, desk_for, filing_type
 from langfuse_synth_core.rng import Rng
-from ..timegen import day_anchor, iso_date, sample_in_range, sample_session_times, window_start
+from ..timegen import day_anchor, iso_date, sample_in_range, sample_session_times, window_start, window_end
 from . import certification as cert_mod
 from .certification import Certification
 from .prompts import version_for_timestamp
@@ -104,7 +104,7 @@ def _build_ambient(cfg: Config, run_date: datetime, rng: Rng, users: list[dict])
         ts = start
         history: list = []   # (question, answer) of earlier turns in THIS case review
         for turn in range(_turns(r.sub("turns", g), gen.volume)):
-            if ts >= run_date:
+            if ts >= window_end(run_date):
                 break
             kind = ambient_kind(r, (g, turn))
             q = build_question(r, ("amb", g, turn), borrower, case, 2025, kind)
@@ -238,7 +238,7 @@ def _build_nightly_batch(cfg: Config, run_date: datetime, rng: Rng) -> list[Trac
     start = window_start(run_date, cfg.generation.window_days)
     for d in range(cfg.generation.window_days):
         night = start + timedelta(days=d, hours=1, minutes=10)  # 03:10 Berlin
-        if night >= run_date:
+        if night >= window_end(run_date):
             continue
         for i in range(nb.traces_per_night):
             borrower = r.sub("bborrower", d, i).choice(BORROWERS).name
@@ -327,6 +327,8 @@ def _summarise(cfg: Config, run_date: datetime, plan: Plan) -> dict:
     n_events_est = len(plan.specs) * 8 + len(plan.specs) * 2
     return {
         "run_date": run_date.isoformat(),
+        "schedule": {"as_of_date": iso_date(run_date), "history_days": cfg.generation.window_days,
+                     "timezone": "UTC", "end": "inclusive"},
         "window_start": window_start(run_date, cfg.generation.window_days).isoformat(),
         "preset_scale": cfg.generation.volume.scale,
         "total_traces": len(plan.specs),

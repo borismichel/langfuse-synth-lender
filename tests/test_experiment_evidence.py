@@ -57,7 +57,9 @@ class ObservationReceiver(requests.Session):
             for scope in resource.scope_spans:
                 for span in scope.spans:
                     self.spans.append(SimpleNamespace(
-                        context=SimpleNamespace(span_id=int.from_bytes(span.span_id, "big")),
+                        name=span.name,
+                        context=SimpleNamespace(span_id=int.from_bytes(span.span_id, "big"),
+                                                trace_id=int.from_bytes(span.trace_id, "big")),
                         attributes={a.key: value(a.value) for a in span.attributes}))
         response = requests.Response()
         response.status_code = 200
@@ -69,8 +71,12 @@ class ObservationReceiver(requests.Session):
 
 
 @pytest.fixture
-def plan():
-    cfg = load_config("config/demo.yaml")
+def plan(request):
+    preset = getattr(request, "param", "presentation")
+    cfg = load_config("config/demo.yaml" if preset == "presentation" else "config/cloud-demo.yaml",
+                      overrides=[] if preset == "presentation" else [
+                          "generation.target_traces=1000",
+                          f"generation.window_days={14 if preset == 'rehearsal14' else 30}"])
     return cfg, build(cfg, Rng(cfg.generation.seed), datetime.fromisoformat(STAMP))
 
 
@@ -146,6 +152,7 @@ def test_sdk_reproduces_dropped_filing_copy_through_hosted_experiment(service, p
     assert json.loads(selected.attributes[QUESTION]) == question
 
 
+@pytest.mark.parametrize("plan", ["presentation", "rehearsal14", "rehearsal30"], indirect=True)
 def test_seed_retains_complete_evidence_without_dropped_attributes(service, plan, caplog):
     cfg, cert = plan
     create_suite(service.lf, cfg, cert)

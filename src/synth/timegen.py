@@ -51,16 +51,21 @@ def sample_session_times(rng: Rng, run_date: datetime, window_days: int,
         weights = [hour_weight(h, tz_offset_hours) for h in hours]
         for h in r.choices(hours, weights, k=n):
             ts = h + timedelta(seconds=r.uniform(0, 3600))
-            if ts < run_date:
+            if ts < window_end(run_date):
                 out.append(ts)
     out.sort()
     return out
 
 
 def window_start(run_date: datetime, window_days: int) -> datetime:
-    """Midnight UTC, ``window_days`` before the run date."""
-    start = run_date - timedelta(days=window_days)
+    """First midnight of the history, including the as-of calendar date."""
+    start = run_date - timedelta(days=window_days - 1)
     return start.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def window_end(run_date: datetime) -> datetime:
+    """Exclusive UTC midnight after the as-of date."""
+    return (run_date + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def sample_timestamps(rng: Rng, run_date: datetime, window_days: int, n: int) -> list[datetime]:

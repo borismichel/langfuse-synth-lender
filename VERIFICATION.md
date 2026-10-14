@@ -119,3 +119,7 @@ certification suite / experiment runs / review queue are config-sized and stay *
 synth-authoring freeze golden_seed:seed \
     --golden tests/golden/lender_spool.ndjson --target-traces 150 --search-path tests
 ```
+
+## Demo setup schedule and presets
+
+See [Depot #328 verification](docs/verification/setup-328.md) for inclusive history, authored rehearsal, actual generated counts, SDK/readback checks, intentional golden changes and release status.

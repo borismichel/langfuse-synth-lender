@@ -98,7 +98,7 @@ def _answer_observation(trace_id: str, *, raw_io: bool):
 
 
 def _install_seeded_env(monkeypatch, *, healthy_queue: bool = True,
-                        evidence_fault: str | None = None) -> None:
+                        evidence_fault: str | None = None, metadata_shape: str = "nested") -> None:
     """Serve the canned seeded project as a v4 Langfuse — and only as one.
 
     Every deprecated endpoint answers a 404, so a read that silently stayed on one fails
@@ -173,6 +173,10 @@ def _install_seeded_env(monkeypatch, *, healthy_queue: bool = True,
                         excerpt["lines"][0][1] = "2,431"
                     else:
                         excerpt[evidence_fault] = "changed"
+                if metadata_shape == "dotted":
+                    question = root["metadata"].pop("analyst_question", {})
+                    root["metadata"].update({f"analyst_question.{key}": value
+                                             for key, value in question.items()})
                 if evidence_fault != "linked_observation":
                     rows.append(root)
             for row in rows:
@@ -232,17 +236,19 @@ ALL_CHECKS = {
 }
 
 
+@pytest.mark.parametrize("metadata_shape", ["nested", "dotted"])
 @pytest.mark.parametrize("fault", ["input", "metadata", "unit_note", "section_id", "sign",
                                    "linked_observation"])
-def test_verify_rejects_missing_evidence_even_when_scores_exist(monkeypatch, fault):
-    _install_seeded_env(monkeypatch, evidence_fault=fault)
+def test_verify_rejects_missing_evidence_even_when_scores_exist(monkeypatch, fault, metadata_shape):
+    _install_seeded_env(monkeypatch, evidence_fault=fault, metadata_shape=metadata_shape)
     checks = _run()
     assert checks["run_filing_evidence"] is False
     assert checks["run_level_scores"] and checks["candidate_b_red_cells"]
 
 
-def test_healthy_seeded_env_passes_every_assertion(monkeypatch):
-    _install_seeded_env(monkeypatch)
+@pytest.mark.parametrize("metadata_shape", ["nested", "dotted"])
+def test_healthy_seeded_env_passes_every_assertion(monkeypatch, metadata_shape):
+    _install_seeded_env(monkeypatch, metadata_shape=metadata_shape)
     checks = _run()
     assert set(checks) == ALL_CHECKS
     assert all(checks.values()), f"unexpected failures: {[k for k, v in checks.items() if not v]}"

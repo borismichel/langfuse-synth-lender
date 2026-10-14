@@ -9,7 +9,7 @@ scoped to the datasets via evaluation rules, score the new runs automatically.
 
 Execution happens on a background thread (single-flight); the UI polls a status dict.
 Results are re-graded locally with the same shared grader (``grading.item_passes``)
-and written to the results store, then merged into ``.synth_state.json`` so
+and written to the results store with a Companion-local summary so
 ``synth memo`` and the dossier pick the run up — exactly like ``synth certify``.
 """
 from __future__ import annotations
@@ -183,8 +183,8 @@ def _execute(cfg: Config, spec: ExperimentSpec, run_id: str,
 
 def _persist_to_state(cfg: Config, spec: ExperimentSpec, run: WorkbenchRun,
                       prompt_version) -> None:
-    """Merge into .synth_state.json (same shape as certify._persist) so the memo and
-    the dossier render workbench runs alongside CLI ones."""
+    """Index live results for the memo and dossier without changing seed anchors."""
+    from ..live_runs import save_live_run
     from ..state import RunState
     from ..timegen import iso_date, now_utc
 
@@ -197,14 +197,12 @@ def _persist_to_state(cfg: Config, spec: ExperimentSpec, run: WorkbenchRun,
         a["n"] += 1
         a["passed"] += 1 if row["passed"] else 0
     for ds, a in aggs.items():
-        suite_state = state.suites.setdefault("certification_suite", {"name": ds, "runs": {}})
         lf_run = next((r["run_name"] for r in run.langfuse_runs if r["dataset"] == ds),
                       run.run_id)
-        suite_state.setdefault("runs", {})[lf_run] = {
+        save_live_run(cfg, state, lf_run, {
             "model": run.release.get("model"), "verdict": "live",
             "pass_rate": round(a["passed"] / a["n"], 4) if a["n"] else 0.0,
             "prompt_version": prompt_version,
             "spec_hash": run.spec_hash,
             "date": iso_date(now_utc()),
-        }
-    state.save()
+        })

@@ -106,24 +106,22 @@ def certify(cfg: Config, model: str, *, run_name: str | None = None,
 
 
 def _persist(cfg: Config, model: str, result: CertifyResult, prompt_version) -> None:
+    from ..live_runs import save_live_run
     from ..state import RunState
     from ..timegen import iso_date, now_utc
 
     if not RunState.exists():
         return
     state = RunState.load()
-    suite_state = state.suites.setdefault(
-        "certification_suite", {"name": result.dataset_name, "runs": {}})
     ok, _scen = apply_gate_result(cfg, result)
-    suite_state.setdefault("runs", {})[result.run_name] = {
+    save_live_run(cfg, state, result.run_name, {
         "model": model, "verdict": "live",
         "gate_ok": ok,
         "pass_rates": {k: round(v["passed"] / v["n"], 4)
                        for k, v in result.by_scenario.items() if v["n"]},
         "prompt_version": prompt_version,
         "date": iso_date(now_utc()),
-    }
-    state.save()
+    })
 
 
 def apply_gate_result(cfg: Config, result: CertifyResult) -> tuple[bool, dict]:

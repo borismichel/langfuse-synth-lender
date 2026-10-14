@@ -1,6 +1,6 @@
 """`synth memo` — render CERT_MEMO.md, the model-validation dossier.
 
-Filled from ``.synth_state.json`` (which ``synth certify`` and the workbench update),
+Filled from immutable ``.synth_state.json`` and Companion-local live run summaries,
 so the dossier can never disagree with the data in Langfuse: scope (release = model +
 prompt version + params), the three-run comparison with per-scenario gates, the
 human-review record, and the verdict.
@@ -20,6 +20,9 @@ OUTPUT_PATH = REPO_ROOT / "CERT_MEMO.md"
 
 
 def build_context(cfg: Config, state: RunState) -> dict:
+    from .live_runs import with_live_runs
+
+    state = with_live_runs(cfg, state)
     suite = state.suite
     runs = []
     for run_name, r in sorted((suite.get("runs") or {}).items(),

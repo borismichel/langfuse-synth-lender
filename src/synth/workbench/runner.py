@@ -1,6 +1,6 @@
 """Background experiment execution — the workbench's run engine.
 
-Triggering a spec runs each target through the v4 ``run_experiment`` API with the
+Triggering a spec runs each target through the v5 ``run_experiment`` API with the
 composed task (the release's model + pinned prompt, temperature 0 by default), the
 selected deterministic evaluators from the code registry, and run metadata carrying
 the **spec hash**, the **evaluator code SHAs**, and the optional **dataset freeze**
@@ -139,7 +139,7 @@ def _execute(cfg: Config, spec: ExperimentSpec, run_id: str,
             )
             run.langfuse_runs.append({"dataset": target.dataset_name, "run_name": name,
                                       "dataset_id": dataset_id,
-                                      "runs_url": links.dataset_runs(dataset_id)})
+                                      "runs_url": res.experiment_url or links.dataset_runs(dataset_id)})
 
             for ir in getattr(res, "item_results", []) or []:
                 item = getattr(ir, "item", None)

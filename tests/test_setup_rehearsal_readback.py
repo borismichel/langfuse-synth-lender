@@ -61,8 +61,8 @@ def test_rehearsal_passes_full_verifier_on_generated_evidence(service, monkeypat
         attrs = span.attributes
         observations.append(observation(f"{span.context.span_id:016x}", f"{span.context.trace_id:032x}",
                                         span.name, attrs))
-    scores.extend(row["body"] for row in service.scores if row.get("type") == "score-create")
-    runs = sorted({link["runName"] for link in service.links})
+    scores.extend(service.scores)
+    runs = {link["datasetRunId"]: link["runName"] for link in service.links}
 
     def handler(method, url, *, params=None, **kwargs):
         params = params or {}
@@ -72,16 +72,16 @@ def test_rehearsal_passes_full_verifier_on_generated_evidence(service, monkeypat
         if path == "/api/public/v3/scores":
             rows = [s for s in scores if all(not params.get(p) or s.get(p) == params[p]
                     for p in ("name", "traceId")) and (not params.get("experimentId") or s.get("datasetRunId") == params["experimentId"])]
-            return _Resp(200, {"data": [{**s, "subject": {"kind": "dataset_run" if s.get("datasetRunId") else "trace",
+            return _Resp(200, {"data": [{**s, "subject": {"kind": "experiment" if s.get("datasetRunId") else "trace",
                 "id": s.get("datasetRunId") or s.get("traceId")}} for s in rows], "meta": {}})
         if path == "/api/public/datasets/certification-suite":
             return _Resp(200, {"id": "ds-cert", "name": "certification-suite"})
         if path == "/api/public/experiments":
-            return _Resp(200, {"data": [{"id": name, "name": name, "datasetId": "ds-cert"} for name in runs], "meta": {}})
+            return _Resp(200, {"data": [{"id": run_id, "name": name, "datasetId": "ds-cert"} for run_id, name in runs.items()], "meta": {}})
         if path == "/api/public/experiment-items":
             return _Resp(200, {"data": [{"id": link["observationId"], "experimentItemId": link["datasetItemId"],
-                "traceId": link["traceId"], "experimentId": link["runName"]}
-                for link in service.links if link["runName"] == params["experimentId"]], "meta": {}})
+                "traceId": link["traceId"], "experimentId": link["datasetRunId"]}
+                for link in service.links if link["datasetRunId"] == params["experimentId"]], "meta": {}})
         if path == "/api/public/dataset-items":
             return _Resp(200, {"data": list(service.items.values()), "meta": {"totalPages": 1}})
         if path == "/api/public/annotation-queues":

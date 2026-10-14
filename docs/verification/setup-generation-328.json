@@ -1,0 +1,54 @@
+[
+  {
+    "history_days": 14,
+    "requested_target": 1000,
+    "realized_traces": 483,
+    "sessions": 50,
+    "range": {
+      "start": "2026-10-03T01:10:00.000Z",
+      "end": "2026-10-16T14:05:25.271Z",
+      "timezone": "UTC"
+    },
+    "suite": 72,
+    "runs": 216
+  },
+  {
+    "history_days": 14,
+    "requested_target": 5000,
+    "realized_traces": 2185,
+    "sessions": 251,
+    "range": {
+      "start": "2026-10-03T01:10:00.000Z",
+      "end": "2026-10-16T16:36:41.046Z",
+      "timezone": "UTC"
+    },
+    "suite": 72,
+    "runs": 216
+  },
+  {
+    "history_days": 30,
+    "requested_target": 1000,
+    "realized_traces": 1119,
+    "sessions": 113,
+    "range": {
+      "start": "2026-09-17T01:10:00.000Z",
+      "end": "2026-10-16T17:59:28.120Z",
+      "timezone": "UTC"
+    },
+    "suite": 72,
+    "runs": 216
+  },
+  {
+    "history_days": 30,
+    "requested_target": 5000,
+    "realized_traces": 5113,
+    "sessions": 563,
+    "range": {
+      "start": "2026-09-17T01:10:00.000Z",
+      "end": "2026-10-16T18:40:07.179Z",
+      "timezone": "UTC"
+    },
+    "suite": 72,
+    "runs": 216
+  }
+]

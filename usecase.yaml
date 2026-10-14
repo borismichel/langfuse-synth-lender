@@ -36,7 +36,7 @@ assets:
 target:
   project_hint: "demo"
   supports: [cloud_eu, cloud_us, self_hosted]
-  cloud_notes: "Traces are DERIVED (~10–12k at full scale, ~12k events at the cloud preset). Run plan first; adjust generation.target_traces so events ≤ 0.8× your tier cap (it is an advisory dial — the realized count is session-derived). The certification suite and experiment runs are preserved at every scale."
+  cloud_notes: "Plan reports the generated trace count. Output is session-derived, so it can differ from the requested target. Check the estimate against your project limits before confirming import. Certification and review cohorts retain their configured sizes."
 
 llm:
   # Demo-time model calls (live playground + certify / workbench runs + the managed
@@ -77,13 +77,40 @@ config_schema:
       maximum: 15000
       default: 5000
       title: "Target traces"
-      description: "Total number of backdated traces to generate — the single, uniform volume knob for this demo. ~5000 is Cloud-free-tier safe; ~10000 is the full self-hosted story. Traces are session-DERIVED, so the kit maps this to its internal volume scaler (Lender: derive-scale) — an advisory dial, not an exact count; the certification suite, experiment runs, and review queue are fixed-size and never scaled."
+      description: "Advisory trace target. Actual output is session-derived and shown in the plan. The 72-item certification suite, three experiment runs and review queue keep their configured sizes."
     generation.window_days:
       type: integer
       default: 14
       enum: [14, 30]
-      title: "Backfill window (days)"
+      title: "History length (days)"
+      description: "Includes the as-of date, in UTC."
   required: []
+
+setup:
+  version: 1
+  schedule:
+    timezone: UTC
+    end: inclusive
+    history:
+      field: generation.window_days
+  fields:
+    generation.target_traces:
+      group: volume
+  host_defaults:
+    cloud_eu:
+      generation.target_traces: 5000
+      generation.window_days: 14
+    cloud_us:
+      generation.target_traces: 5000
+      generation.window_days: 14
+    self_hosted:
+      generation.target_traces: 5000
+      generation.window_days: 30
+  presets:
+    quick_rehearsal:
+      label: Quick rehearsal
+      values:
+        generation.target_traces: 1000
 
 pipeline:
   - id: probe
@@ -113,6 +140,9 @@ pipeline:
     fatal: false
 
 artifacts:
+  - path: SCHEDULE.json
+    render: json
+    title: "Generated schedule"
   - path: DEMO_SCRIPT.md
     render: markdown
     title: "Demo script"

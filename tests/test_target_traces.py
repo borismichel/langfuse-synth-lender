@@ -33,13 +33,8 @@ CONFIG = str(REPO_ROOT / "config" / "demo.yaml")
 # The bounds Lender declares for the canonical knob (must match usecase.yaml verbatim).
 LENDER_MIN, LENDER_MAX, LENDER_DEFAULT = 1000, 15000, 5000
 LENDER_TITLE = "Target traces"
-LENDER_DESCRIPTION = (
-    "Total number of backdated traces to generate — the single, uniform volume knob for "
-    "this demo. ~5000 is Cloud-free-tier safe; ~10000 is the full self-hosted story. Traces "
-    "are session-DERIVED, so the kit maps this to its internal volume scaler (Lender: "
-    "derive-scale) — an advisory dial, not an exact count; the certification suite, "
-    "experiment runs, and review queue are fixed-size and never scaled."
-)
+LENDER_DESCRIPTION = 'Advisory trace target. Actual output is session-derived and shown in the plan. The 72-item certification suite, three experiment runs and review queue keep their configured sizes.'
+
 
 _authoring = importlib.util.find_spec("jsonschema") is not None
 

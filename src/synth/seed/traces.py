@@ -135,7 +135,8 @@ def _tool(events: list, r: Rng, cur: _Cursor, *, obs_id: str, trace_id: str, nam
 def build_trace_events(rng: Rng, cfg: Config, spec: TraceSpec, prompt_version: int | None = None,
                        answer_usage: tuple[int, int] | None = None,
                        answer_latency_ms: int | None = None,
-                       answer_input: list[dict] | None = None) -> list[dict]:
+                       answer_input: list[dict] | None = None,
+                       end_before: datetime | None = None) -> list[dict]:
     """Build the v2 turn tree. Seed path leaves the overrides None (tokens + latency
     sampled; the answer input is the prompt chat turn); the live playground passes the
     real model usage, the measured latency, and the actually-compiled messages."""
@@ -309,6 +310,16 @@ def build_trace_events(rng: Rng, cfg: Config, spec: TraceSpec, prompt_version: i
         metadata={"tool_calls": tool_calls, "case_id": q.case_id, "step": "plan"},
         prompt_name=cfg.certification.prompt_name if pver else None,
         prompt_version=pver))
+
+    if end_before is not None and cur.t >= end_before:
+        # Preserve sampled durations and relationships while keeping the entire
+        # historical observation graph inside the selected calendar date.
+        latest_start = end_before - (cur.t - spec.timestamp) - timedelta(microseconds=1)
+        if latest_start.date() != spec.timestamp.date():
+            raise ValueError("A historical trace duration exceeds its calendar day")
+        spec.timestamp = latest_start
+        return build_trace_events(rng, cfg, spec, prompt_version, answer_usage,
+                                  answer_latency_ms, answer_input, end_before)
 
     # -- trace shell -----------------------------------------------------------
     events.insert(0, trace_event(

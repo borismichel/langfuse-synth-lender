@@ -11,8 +11,7 @@ from synth.seed.run import run_seed
 from synth.seed.datasets import create_suite
 from synth.seed.cert_runs import seed_experiment_runs
 from test_verify_split import _Resp, _install_seeded_env
-
-pytest_plugins = ["test_experiment_evidence"]
+from test_experiment_evidence import service as service
 
 
 def decoded(value):

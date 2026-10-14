@@ -34,3 +34,7 @@ The inclusive calendar correction changes the pinned150-target golden chronologi
 Linked author skill Langfuse dependency was read at `/Users/bmichel/.agents/skills/author-langfuse-demo-kit/dependencies/langfuse/SKILL.md`. Dependency entrypoint SHA256: `e8908ea1c924374ba7bc5e82b220709d107db6a3450a0c4d72228a91a2a7534a`. Current [Sessions documentation](https://langfuse.com/docs/observability/features/sessions) confirms grouping multiple traces under a session; this change preserves existing session identities and observation transport. No new observation/evaluator design or SDK migration is included.
 
 Portal evidence lives in Depot `design/demo-wizard-324/328/verification.md`. Existing release admission is retained for this registered kit update; normal reviewed immutable release, signed image and registry pin checks remain pending with the coordinator. No production deployment, project deletion, provider spend or new infrastructure is part of this evidence.
+
+## Clean CI fixture correction
+
+The first clean GitHub SDK matrix run passed254 tests but could not start the two new rehearsal readback cases: their shared `service` fixture depended on test-module plugin registration order. Running the experiment test module before the rehearsal module reproduced the failure locally (8 passed,2 fixture errors). The rehearsal module now explicitly imports the existing fixture; the same ordered run passes all10 tests. Generated-data assertions and the fixture's HTTP/export boundary are unchanged. The complete supported SDK matrix is rerun before release.

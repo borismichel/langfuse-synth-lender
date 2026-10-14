@@ -32,7 +32,9 @@ def render_dossier(cfg: Config) -> str:
                     "<div class='card'><h2>No dossier yet</h2><p class='sub'>Run <code>synth seed"
                     "</code> first — the dossier is generated from the seeded certification "
                     "record.</p></div>", title=TITLE, wide=True)
-    state = RunState.load()
+    from ..live_runs import with_live_runs
+
+    state = with_live_runs(cfg, RunState.load())
     suite = state.suite
     runs = sorted((suite.get("runs") or {}).items(),
                   key=lambda kv: (kv[1].get("date", ""), kv[0]))

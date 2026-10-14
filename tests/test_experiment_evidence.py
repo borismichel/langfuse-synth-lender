@@ -58,7 +58,7 @@ class ObservationReceiver(requests.Session):
             for scope in resource.scope_spans:
                 for span in scope.spans:
                     self.spans.append(SimpleNamespace(
-                        name=span.name,
+                        name=span.name, parent_id=int.from_bytes(span.parent_span_id, "big"),
                         context=SimpleNamespace(span_id=int.from_bytes(span.span_id, "big"),
                                                 trace_id=int.from_bytes(span.trace_id, "big")),
                         attributes={a.key: value(a.value) for a in span.attributes}))
@@ -302,3 +302,115 @@ def test_experiment_subset_preserves_dataset_version_and_original_task_data(serv
     assert service.links[0]["datasetItemId"] == original.id
     assert datetime.fromisoformat(service.links[0]["datasetVersion"]) == datetime.fromisoformat(STAMP)
     assert [item.model_dump() for item in dataset.items] == before
+
+
+def test_live_runs_persist_with_read_only_seed_anchors(service, plan, monkeypatch, tmp_path):
+    from synth import clients
+    from synth.certify.run import certify
+    from synth.live.dashboard import render_dossier
+    from synth.memo import build_context
+    from synth.state import RunState, state_path
+
+    cfg, cert = plan
+    source = cert.suite[0]
+    cert.suite = [source]
+    create_suite(service.lf, cfg, cert)
+    cfg.workbench.results_dir = str(tmp_path / "workbench")
+    spool = tmp_path / "spool"
+    monkeypatch.setenv("SYNTH_STATE_DIR", str(spool))
+    seed = RunState(base_url="http://langfuse.test", project_name="test", project_id="project",
+                    run_date=STAMP, prompt_name="analyst-copilot", suites={
+                        "certification_suite": {"name": "certification-suite", "runs": {
+                            "seed-baseline": {"model": "incumbent", "verdict": "baseline"}}}})
+    seed.save()
+    from pathlib import Path
+    anchors = Path(state_path())
+    before = anchors.read_bytes()
+    anchors.chmod(0o444)
+    spool.chmod(0o555)
+    monkeypatch.setattr(clients, "langfuse", lambda _: service.lf)
+    monkeypatch.setattr(clients, "llm", lambda _: SimpleNamespace(model="test-model",
+        complete=lambda **kw: SimpleNamespace(text=source.expected.model_dump_json(),
+                                              input_tokens=300, output_tokens=100)))
+    try:
+        # The deployed Companion receives exactly this unwritable seed-state boundary.
+        with pytest.raises(PermissionError):
+            anchors.write_text("must not replace seed state")
+        result = certify(cfg, "test-model", run_name="live-cert", log=lambda _: None)
+        assert result.n_items == result.n_passed == 1
+        assert anchors.read_bytes() == before
+        assert list(RunState.load().suite["runs"]) == ["seed-baseline"]
+        context = build_context(cfg, RunState.load())
+        assert [r["run_name"] for r in context["live_runs"]] == ["live-cert"]
+        assert "seed-baseline" in render_dossier(cfg) and "live-cert" in render_dossier(cfg)
+
+        import time
+
+        from synth.workbench.results import load_run
+        from synth.workbench.runner import start_run, status
+        from synth.workbench.specs import ExperimentSpec, Release, Target
+
+        # A second, independent public surface records into the same live dossier.
+        monkeypatch.setattr(clients, "langfuse", lambda _, **kw: service.lf)
+        monkeypatch.setattr(clients, "llm", lambda model, **kw: SimpleNamespace(model=model,
+            complete=lambda **kw: SimpleNamespace(text=source.expected.model_dump_json(),
+                                                  input_tokens=300, output_tokens=100)))
+        spec = ExperimentSpec(name="readonly-workbench", release=Release(model="test-model"),
+            targets=[Target(dataset_name=cfg.certification.dataset.name)],
+            evaluators=["numeric_accuracy", "citation_format", "escalation_correctness"])
+        run_id, error = start_run(cfg, spec)
+        assert not error
+        deadline = time.monotonic() + 15
+        while status(run_id)["state"] == "running" and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert status(run_id)["state"] == "done", status(run_id)
+        saved = load_run(cfg, run_id)
+        while saved is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+            saved = load_run(cfg, run_id)
+        assert saved is not None and saved.state == "done"
+        live_name = saved.langfuse_runs[0]["run_name"]
+        assert {r["run_name"] for r in build_context(cfg, RunState.load())["live_runs"]} == {
+            "live-cert", live_name}
+        assert live_name in render_dossier(cfg)
+        assert anchors.read_bytes() == before
+        assert list(RunState.load().suite["runs"]) == ["seed-baseline"]
+
+        # Reusing the local workbench directory for another project must not leak runs.
+        another_project = RunState.load()
+        another_project.project_id = "another-project"
+        assert build_context(cfg, another_project)["live_runs"] == []
+    finally:
+        spool.chmod(0o755)
+        anchors.chmod(0o644)
+
+
+def test_live_escalation_exports_completed_event_output(service, caplog):
+    from langfuse_synth_core.live.emit import LiveEmitter
+
+    from synth.agent import answer_deterministic
+    from synth.live.prefabs import prefabs_by_key
+    from synth.live.trace import emit_live_turn
+
+    cfg = load_config("config/demo.yaml")
+    question = prefabs_by_key(cfg.generation.seed)["escalation"].question
+    answer = answer_deterministic(question)
+    assert answer.answer_type == "escalated"
+    emitter = LiveEmitter("http://langfuse.test", public_key="pk-test", secret_key="sk-test",
+                          client=service.lf)
+    with caplog.at_level(logging.WARNING):
+        trace_id, _ = emit_live_turn(emitter, cfg, question=question,
+            answer_input=[{"role": "user", "content": user_turn(question)}],
+            run_answer=lambda: (answer, 300, 100), answer_model=cfg.certification.candidate_a_model,
+            prompt_version=7)
+    event = next(s for s in service.exporter.get_finished_spans() if s.name == "escalated_to_human")
+    assert event.attributes["langfuse.observation.type"] == "event"
+    assert json.loads(event.attributes[INPUT]) == {"case_id": question.case_id}
+    assert json.loads(event.attributes[OUTPUT]) == {"queued": True}
+    assert json.loads(event.attributes["langfuse.observation.metadata.route"]) == "senior_credit_officer"
+    assert json.loads(event.attributes["langfuse.observation.metadata.reason"]) == "conflicting sources"
+    assert f"{event.context.trace_id:032x}" == trace_id
+    planner = next(s for s in service.exporter.get_finished_spans()
+                   if s.name == "copilot-turn" and s.parent_id)
+    assert event.parent_id == planner.context.span_id
+    assert not [r.message for r in caplog.records if r.levelno >= logging.WARNING]

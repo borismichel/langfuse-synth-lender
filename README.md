@@ -367,6 +367,8 @@ evidence on the judged task observation. Live scores use SDK batches to
 `/api/public/scores`; historical Spool scores keep raw `score-create` ingestion.
 Flushing drains buffers; release rehearsal must read back items, evaluator scores,
 complete filing evidence and comparison links after bounded retries.
+The verifier accepts both nested and dotted `analyst_question` metadata returned
+by the observations API, then compares the full question and input exactly.
 
 The controlled real-SDK tests retain the existing 1,080-score/feedback digest and
 exercise certification seed, live certification and workbench execution. They do not

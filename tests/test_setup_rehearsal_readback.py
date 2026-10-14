@@ -22,12 +22,18 @@ def decoded(value):
 
 
 def observation(sid, tid, name, attrs):
+    metadata = {key.removeprefix("langfuse.observation.metadata."): decoded(value)
+                for key, value in attrs.items() if key.startswith("langfuse.observation.metadata.")}
+    # Observed Cloud v4.59 read shape: object fields use dotted metadata keys;
+    # input/output remain raw JSON strings, including on experiment item roots.
+    question = metadata.pop("analyst_question", None)
+    if isinstance(question, dict):
+        metadata.update({f"analyst_question.{key}": value for key, value in question.items()})
     return {"id": sid, "traceId": tid, "name": name,
             "type": attrs.get("langfuse.observation.type", "span").upper(),
-            "input": decoded(attrs.get("langfuse.observation.input")),
-            "output": decoded(attrs.get("langfuse.observation.output")),
-            "metadata": {key.removeprefix("langfuse.observation.metadata."): decoded(value)
-                         for key, value in attrs.items() if key.startswith("langfuse.observation.metadata.")},
+            "input": attrs.get("langfuse.observation.input"),
+            "output": attrs.get("langfuse.observation.output"),
+            "metadata": metadata,
             "tags": attrs.get("langfuse.trace.tags", []),
             "promptName": attrs.get("langfuse.observation.prompt.name"),
             "promptVersion": attrs.get("langfuse.observation.prompt.version"),

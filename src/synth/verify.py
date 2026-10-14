@@ -232,7 +232,16 @@ def _run_verify(cfg: Config, state: RunState, *, initial_evaluators: bool,
                     continue
                 source_question = AnalystQuestion.from_input(
                     (source.get("metadata") or {}).get("analyst_question") or source["input"])
-                observed_question = (observation.metadata or {}).get("analyst_question")
+                metadata = observation.metadata or {}
+                observed_question = metadata.get("analyst_question")
+                # Cloud's observations API flattens object metadata into dotted keys.
+                # Restore only this kit-owned namespace; preserve every filing value.
+                if observed_question is None:
+                    observed_question = {
+                        key.removeprefix("analyst_question."): value
+                        for key, value in metadata.items()
+                        if key.startswith("analyst_question.")
+                    } or None
                 # Older datasets used the structured question directly as input.
                 if observed_question is None and isinstance(observation.input, dict):
                     observed_question = observation.input

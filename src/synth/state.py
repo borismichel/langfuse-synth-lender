@@ -12,9 +12,9 @@ spool volume — the Contract's per-run anchors rules, ``langfuse-synth-core``
 ``CONTRACT.md`` §"Per-run anchors (opt-in)"), and ``save``/``load``/``exists`` inherited
 via :class:`AnchorsIO` — including this kit's tolerant ``load`` (unknown keys dropped),
 now the shared behavior. This module keeps only what is Lender's: the payload fields,
-their convenience accessors, and the dev-checkout fallback location. (The live-container
-writers — workbench/certify — still collide with the Contract's read-only live mount;
-that migration debt is tracked in ``CONTRACT.md``, not here.)
+their convenience accessors, and the dev-checkout fallback location. Live certification
+and workbench summaries use the separate Companion-local store in ``live_runs``; they
+never rewrite these imported seed anchors.
 """
 from __future__ import annotations
 

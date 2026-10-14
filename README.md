@@ -88,6 +88,11 @@ injection, runs/results/compare, requirement coverage, promote-from-queue,
 sign-off + evidence packs. *(The workbench is a work-in-progress, alpha-stage
 surface — the seeded certification story is the supported path.)*
 
+Live certification and workbench summaries are stored in the Companion's existing
+`workbench.results_dir` (default `.workbench`) and included in its dossier and memo.
+They leave the imported seed anchors unchanged. This local index lasts for the
+Companion instance; the experiments remain in Langfuse after the instance is removed.
+
 The workbench's **Temperature** field is recorded in the release tuple and on the
 sign-off, but it is not sent to the model: the Anthropic SDK (1.0.0) removed the
 sampling parameters and the companion layer no longer forwards them. Certification

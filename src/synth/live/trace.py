@@ -109,10 +109,13 @@ def emit_live_turn(emitter: Any, cfg: Config, *, question: AnalystQuestion,
                            cost_details=cost_details(pricing, in_tok, out_tok, 0, 0))
 
             if answer.answer_type == "escalated":
+                # Events end at creation, so the simulated handoff outcome must be
+                # supplied here rather than updated after the event has ended.
                 with planner.event("escalated_to_human", input={"case_id": question.case_id},
+                                   output={"queued": True},
                                    metadata={"route": "senior_credit_officer",
-                                             "reason": "conflicting sources"}) as escalation:
-                    escalation.update(output={"queued": True})
+                                             "reason": "conflicting sources"}):
+                    pass
 
             planner.update(output=plan_output)
         trace.update(output=answer.model_dump())

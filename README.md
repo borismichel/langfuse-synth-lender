@@ -289,8 +289,8 @@ version; it is not assumed to mean an older self-hosted deployment.
 
 API contracts checked against the [official Langfuse API reference](https://api.reference.langfuse.com/)
 and [OpenAPI source](https://github.com/langfuse/langfuse/blob/main/web/public/generated/api/openapi.yml)
-on 2026-09-15. The existing core pin is v4.1.1; contract tests ran with Python SDK
-4.15.3. This repair does not change seeded metric values or dataset history.
+on 2026-09-15 with core v4.1.1 and Python SDK 4.15.3. The v5 upgrade below
+retains these evaluator contracts, seeded metric values and dataset history.
 
 Evaluation rules are **live-ingestion only — they never backfill**, so scoping a rule
 (experiment or observation) fires **zero** evaluations on the already-seeded, backdated
@@ -354,3 +354,20 @@ it keylessly (Spec E · E7, #102). See
 [`langfuse-synth-core`'s `docs/CI_SIGNING.md`](https://github.com/borismichel/langfuse-synth-core/blob/main/docs/CI_SIGNING.md)
 for the full contract — image naming, cadence, runner, and the signing-identity policy
 the portal's verification gate checks against.
+
+### Python SDK v5
+
+New images use Python SDK **5.0.1** and Python 3.12; source installs require Python
+>=3.11. Targets must be Langfuse Cloud or self-hosted Langfuse **>=4.59.0**.
+See the [released migration guide](https://langfuse.com/docs/observability/sdk/upgrade-path/python-v4-to-v5).
+
+SDK experiments record item membership and dataset versions on OTLP observations.
+The filing wrapper retains the original dataset/items and restores complete filing
+evidence on the judged task observation. Live scores use SDK batches to
+`/api/public/scores`; historical Spool scores keep raw `score-create` ingestion.
+Flushing drains buffers; release rehearsal must read back items, evaluator scores,
+complete filing evidence and comparison links after bounded retries.
+
+The controlled real-SDK tests retain the existing 1,080-score/feedback digest and
+exercise certification seed, live certification and workbench execution. They do not
+replace admission and presenter rehearsal of the signed image on a fresh target.

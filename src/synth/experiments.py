@@ -1,9 +1,10 @@
 """Keep generated filing fixtures outside SDK propagation limits.
 
 Dataset storage retains the full structured question. Only the in-memory execution
-copy omits it from item metadata, which the SDK automatically propagates (200 chars
-per flattened value). The task restores it as ordinary observation metadata on the
-SDK's current experiment-item-task observation, before calling the kit task.
+copy omits it from item metadata, keeping full evidence owned by the judged
+experiment-item-task observation. SDK v5 serializes experiment metadata as one JSON
+value; ordinary trace propagation still has a 200-character encoded-value limit.
+The task restores the question as observation metadata before calling the kit task.
 """
 from __future__ import annotations
 

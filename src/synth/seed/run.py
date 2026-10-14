@@ -15,7 +15,7 @@ fixtures on the way out.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -25,7 +25,7 @@ from ..state import REPO_ROOT, RunState
 # Two `timegen`s on purpose: Lender keeps its own sessions-per-day sampler (core
 # docs/SEAM.md tie-break — a different algorithm, not a re-parametrisation), while the
 # as-of → run-anchor resolution is cross-kit and lives in core (portal #229).
-from ..timegen import day_anchor, iso_date
+from ..timegen import day_anchor, iso_date, iso, window_end
 from langfuse_synth_core.timegen import resolve_run_date
 from .annotation import seed_queue
 from .cert_runs import run_gate_verdict, run_pass_rates
@@ -155,6 +155,11 @@ def run_seed(cfg: Config, *, dry_run: bool = False, persist: bool = True,
     state = _build_state(cfg, plan, versions, project_name, queue_info, dry_run)
     state.project_id = project_id
     if persist:
+        from ..artifacts import artifact_path
+        artifact_path("SCHEDULE.json").write_text(json.dumps({
+            "version": 1, "requested": plan.summary["schedule"],
+            "generated_range": plan.summary["generated_range"],
+        }, indent=2) + "\n")
         _write_fixtures(plan)
         state.save()
         log("✓ wrote run state and golden-case fixtures")
@@ -175,10 +180,18 @@ def _spool_all(cfg: Config, plan: Plan, ing: Ingestor) -> None:
                                              plan.cert.flagged_pending)}
     golden_by_id = {g.trace_id: g for g in plan.cert.golden}
 
+    earliest = latest = None
     ing.open_spool()
     try:
         for spec in plan.specs:
-            ing.extend(build_trace_events(rng, cfg, spec))
+            events = build_trace_events(rng, cfg, spec, end_before=window_end(run_date))
+            for event in events:
+                if "spanId" in event:
+                    start = int(event["startTimeUnixNano"])
+                    end = int(event["endTimeUnixNano"])
+                    earliest = start if earliest is None else min(earliest, start)
+                    latest = end if latest is None else max(latest, end)
+            ing.extend(events)
             ing.extend(deterministic_scores(rng, spec, sc))
 
             dip = (dip_cfg.dip if dip_cfg.enabled
@@ -215,6 +228,12 @@ def _spool_all(cfg: Config, plan: Plan, ing: Ingestor) -> None:
         # cert_runs.py header for the cloud-vs-v3 discrepancy).
     finally:
         ing.close_spool()
+
+    plan.summary["generated_range"] = {
+        "start": iso(datetime.fromtimestamp(earliest / 1e9, timezone.utc)),
+        "end": iso(datetime.fromtimestamp(latest / 1e9, timezone.utc)),
+        "timezone": "UTC",
+    } if earliest is not None else None
 
 
 def _populate_managed_evaluators(cfg: Config, log: Callable[[str], None]) -> None:
